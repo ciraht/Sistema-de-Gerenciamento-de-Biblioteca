@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
 
 
 @app.route('/cadastro', methods=["POST"])
@@ -97,7 +98,12 @@ def cadastrar():
 
         cur.close()
 
-        return jsonify({"message": "Usuário cadastrado com sucesso"}), 201
+        return jsonify(
+            {
+                "message": "Usuário cadastrado com sucesso",
+                "id_user" : id_usuario
+            }
+        ), 201
 
     except Exception as e:
         return jsonify({"message": f"Erro: {str(e)}"}), 500
@@ -114,13 +120,19 @@ def logar():
     cur = con.cursor()
 
     # Checando se a senha está correta
-    cur.execute("SELECT senha FROM usuarios WHERE email = ?", (email,))
-    senha_hash = cur.fetchone()
+    cur.execute("SELECT senha, id_usuario FROM usuarios WHERE email = ?", (email,))
+    resultado = cur.fetchone()
 
-    if senha_hash:
-        senha_hash = senha_hash[0]
+    if resultado:
+        senha_hash = resultado[0]
+        id_user = resultado[1]
         if check_password_hash(senha_hash, senha):
-            return jsonify({"message": "Usuário entrou com sucesso"}), 200
+            return jsonify(
+                {
+                    "message": "Usuário entrou com sucesso",
+                    "id_user": id_user
+                }
+            ), 200
         else:
             return jsonify({"message": "Credenciais inválidas"}), 401
     else:
@@ -148,6 +160,26 @@ def usuario_put(id):
     if not all([nome, email, telefone, endereco]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
+    # Verificando se os dados novos já existem na DataBase
+    cur.execute("select email, telefone from usuarios where id_usuario = ?", (id))
+    checagem = cur.fetchone()
+    emailvelho = checagem[0]
+    telefonevelho = checagem[1]
+    emailvelho.lower()
+    email.lower()
+    telefone.lower()
+    telefonevelho.lower()
+    if telefone != telefonevelho or email != emailvelho:
+        cur.execute("select 1 from usuarios where telefone = ?", (telefone,))
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"message":"Telefone já cadastrado"})
+    if email != emailvelho:
+        cur.execute("select 1 from usuarios where email = ?", (email,))
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"message":"Email já cadastrado"})
+
     # Atualizando as informações
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
@@ -161,17 +193,280 @@ def usuario_put(id):
 
 @app.route('/editar_usuario/<int:id>', methods=['DELETE'])
 def deletar_usuario(id):
-    cursor = con.cursor()
+    cur = con.cursor()
 
     # Verificar se o usuario existe
-    cursor.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id,))
-    if not cursor.fetchone():
-        cursor.close()
+    cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id,))
+    if not cur.fetchone():
+        cur.close()
         return jsonify({"error": "usuario não encontrado"}), 404
 
     # Excluir o usuario
-    cursor.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id,))
+    cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id,))
     con.commit()
-    cursor.close()
+    cur.close()
 
     return jsonify({'message': "usuario excluído com sucesso!",})
+
+@app.route('/adicionar_livros', methods=["POST"])
+def adicionar_livros():
+    data = request.get_json()
+    titulo = data.get('titulo')
+    autor = data.get('autor')
+    categoria = data.get('categoria')
+    isbn = data.get('isbn')
+    qtd_disponivel = data.get('qtd_disponivel')
+    descricao = data.get('descricao')
+
+    # Verificando se tem todos os dados
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Procurando por duplicados pelo ISBN
+    cur.execute("select 1 from acervo where isbn = ?", (isbn,))
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"error": "ISBN já cadastrada"})
+
+    # Adicionando os dados na Database
+    cur.execute(
+        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao) VALUES(?,?,?,?,?,?)",
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao)
+    )
+    con.commit()
+
+    cur.close()
+
+    return jsonify({"message": "Livro cadastrado com sucesso"})
+
+@app.route('/editar_livro/<int:id>', methods=["PUT"])
+def editar_livro(id):
+    cur = con.cursor()
+    cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?", (id,))
+    acervo_data = cur.fetchone()
+
+    if not acervo_data:
+        cur.close()
+        return jsonify({"message": "Livro não foi encontrado"}), 404
+
+    data = request.get_json()
+    titulo = data.get('titulo')
+    autor = data.get('autor')
+    categoria = data.get('categoria')
+    isbn = data.get('isbn')
+    qtd_disponivel = data.get('qtd_disponivel')
+    descricao = data.get('descricao')
+
+    # Verificando se tem todos os dados
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
+        cur.close()
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    # Verificando se os dados novos já existem na DataBase
+    isbnvelho = acervo_data[3].lower()
+    if isbn != isbnvelho:
+        cur.execute("select 1 from acervo where isbn = ?", (isbn,))
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"message":"ISBN já cadastrado"})
+
+    cur.execute(
+        "UPDATE acervo SET titulo = ?, autor = ?, categoria = ?, isbn = ?, qtd_disponivel = ?, descricao = ? WHERE id_livro = ?",
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, id)
+    )
+    con.commit()
+
+    cur.close()
+
+    return jsonify({"message": "Livro atualizado com sucesso"}), 200
+
+@app.route('/editar_livro<int:id>', methods=["DELETE"])
+def livro_delete(id):
+    cur = con.cursor()
+
+    # Verificar se o livro existe
+    cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id,))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"error": "Livro não encontrado"}), 404
+
+    # Excluir o Livro
+    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id,))
+    con.commit()
+    cur.close()
+
+    return jsonify({'message': "Livro excluído com sucesso!", })
+
+
+@app.route('/emprestimo_livro<int:id>', methods=["POST"])
+def emprestar_livros(id):
+    data = request.get_json()
+    id_leitor = data.get('id_leitor')
+    data_devolucao = data.get('data_devolucao')
+
+    # Checando se todos os dados foram preenchidos
+    if not all([id_leitor, data_devolucao]):
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Checando se o livro existe
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id,))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message" : "O livro selecionado não existe"})
+
+    # Checando se o leitor já tem o livro emprestado?
+    cur.execute(
+        "SELECT 1 FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)"
+    )
+    if cur.fetchone():
+        cur.close()
+        return jsonify({
+            "message" : "O leitor já possui o livro"
+        })
+
+    # Checando se o livro está disponivel
+    cur.execute(
+        "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
+        (id,)
+    )
+    qtd_disponivel = cur.fetchone()[0]
+    cur.execute(
+        "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)"
+    )
+    if qtd_disponivel <= cur.fetchone()[0]:
+        cur.close()
+        return jsonify({
+            "message" : "Todos os exemplares disponiveis desse livro já estão emprestados"
+        })
+
+    cur.execute("select 1 from reservas where id_livro = ? and (select count(id_reserva) from reservas where id_livro = ?) >= ?", (id, id, qtd_disponivel))
+    if cur.fetchone():
+        cur.close()
+        return jsonify("Esse livro já está reservado")
+
+    # Inserindo o emprestimo no banco de dados
+    cur.execute(
+        "INSERT INTO EMPRESTIMOS (ID_LEITOR,ID_LIVRO,DATA_DEVOLVER) values (?,?,?)",
+        (id_leitor, id, data_devolucao)
+    )
+
+    con.commit()
+    cur.close()
+
+    return jsonify({
+        "message" : "Livro emprestado com sucesso"
+    })
+
+
+@app.route('/devolucao_livro<int:id>', methods=["POST"])
+def devolver_livro(id):
+    data = request.get_json()
+    id_leitor = data.get('id_leitor')
+
+    # Checando se todos os dados foram preenchidos
+    if not id_leitor:
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Checando se o livro existe
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id,))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message": "O livro selecionado não existe"})
+
+    # Checando se o id leitor tem um livro para devolver
+    cur.execute(
+        "SELECT id_emprestimo FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)",
+        (id_leitor,id, id_leitor, id))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"error": "O leitor não emprestou esse livro"})
+
+    emprestimo = cur.fetchone()
+    emprestimo = emprestimo[0]
+
+    cur.execute("insert into devolucoes (id_leitor, id_livro, id_emprestimo) values (?,?,?)", (id_leitor, id, emprestimo))
+
+    con.commit()
+    cur.close()
+
+    return jsonify(
+        {
+            "message" : "Livro devolvido com sucesso"
+        }
+    )
+
+@app.route('/reserva_livro<int:id>', methods=["POST"])
+def reservar_livros(id):
+    data = request.get_json()
+    id_leitor = data.get('id_leitor')
+
+    # Checando se todos os dados foram preenchidos
+    if not id_leitor:
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Checando se o livro existe
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id,))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message": "O livro selecionado não existe"})
+
+    # Adicionando a reserva no banco de dados
+    cur.execute("insert into reservas (id_leitor, id_livro) values (?,?, DATEADD(7 DAY TO CURRENT_TIMESTAMP))", (id_leitor,id))
+
+    con.commit()
+    cur.close()
+
+    return jsonify({
+        "message" : "Livro reservado com sucesso"
+    })
+
+@app.route('/reserva_livro<int:id>', methods=["DELETE"])
+def deletar_reservas(id):
+    data = request.get_json()
+    id_reserva = data.get('id_reserva')
+
+    # Checando se todos os dados foram preenchidos
+    if not id_reserva:
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Checando se a reserva existe
+    cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva,))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message": "A reserva selecionado não existe"})
+
+    # Excluir a Reserva
+    cur.execute("DELETE FROM reserva WHERE id_reserva = ?", (id_reserva,))
+    con.commit()
+    cur.close()
+
+    return jsonify({
+        "message" : "Reserva excluída com sucesso"
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

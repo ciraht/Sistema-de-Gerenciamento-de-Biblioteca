@@ -10,13 +10,11 @@ class Bibliotecario:
     def __init__(self, id_bibliotecario, id_usuario, senha):
         self.id_bibliotecario = id_bibliotecario
         self.id_usuario = id_usuario
-        self.senha = senha
 
 class Leitor:
     def __init__(self, id_leitor, id_usuario, senha):
         self.id_leitor = id_leitor
         self.id_usuario = id_usuario
-        self.senha = senha
 
 class Acervo:
     def __init__(self, id_livro, titulo, autor, categoria, isbn, qtd_disponivel, descricao):
@@ -45,8 +43,9 @@ class Reserva:
         self.data_validade = data_validade
 
 class Devolucao:
-    def __init__(self, id_devolucao, id_leitor, id_livro, data):
+    def __init__(self, id_devolucao, id_leitor, id_emprestimo,id_livro,data):
         self.id_devolucao = id_devolucao
         self.id_leitor = id_leitor
+        self.id_emprestimo = id_emprestimo
         self.id_livro = id_livro
         self.data = data
