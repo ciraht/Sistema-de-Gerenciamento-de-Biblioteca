@@ -165,10 +165,10 @@ def usuario_put(id):
     checagem = cur.fetchone()
     emailvelho = checagem[0]
     telefonevelho = checagem[1]
-    emailvelho.lower()
-    email.lower()
-    telefone.lower()
-    telefonevelho.lower()
+    emailvelho = emailvelho.lower()
+    email = email.lower()
+    telefone = telefone.lower()
+    telefonevelho = telefonevelho.lower()
     if telefone != telefonevelho or email != emailvelho:
         cur.execute("select 1 from usuarios where telefone = ?", (telefone,))
         if cur.fetchone():
@@ -383,11 +383,11 @@ def devolver_livro(id):
     cur.execute(
         "SELECT id_emprestimo FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)",
         (id_leitor,id, id_leitor, id))
-    if not cur.fetchone():
+    emprestimo = cur.fetchone()
+    if not emprestimo:
         cur.close()
         return jsonify({"error": "O leitor não emprestou esse livro"})
 
-    emprestimo = cur.fetchone()
     emprestimo = emprestimo[0]
 
     cur.execute("insert into devolucoes (id_leitor, id_livro, id_emprestimo) values (?,?,?)", (id_leitor, id, emprestimo))
@@ -454,19 +454,25 @@ def deletar_reservas(id):
         "message" : "Reserva excluída com sucesso"
     })
 
+@app.route('/pesquisa', methods=["GET"])
+def pesquisar():
+    data = request.get_json()
+    pesquisa = data.get('pesquisa')
 
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado"})
 
+    cur = con.cursor()
 
+    # Pesquisando texto
+    cur.execute(f"SELECT id_livro, titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE titulo CONTAINING '{pesquisa}'")
+    resultados = cur.fetchall()
+    if not resultados:
+        cur.close()
+        return jsonify({"message": "Nenhum resultado encontrado"}), 404
 
-
-
-
-
-
-
-
-
-
-
-
-
+    return jsonify({
+        "message": "Pesquisa realizada com sucesso",
+        "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
+                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6]} for r in resultados]
+    }), 202
