@@ -483,10 +483,10 @@ def deletar_reservas(id):
         "message" : "Reserva excluída com sucesso"
     })
 
-@app.route('/pesquisa', methods=["POST"])
+@app.route('/pesquisa', methods=["GET"])
 def pesquisar():
-    pesquisa = request.get_json()
-    pesquisa = pesquisa.get('pesquisa')
+    data = request.get_json()
+    pesquisa = data.get("pesquisa")
 
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
