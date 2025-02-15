@@ -380,10 +380,11 @@ def emprestar_livros(id):
             "message" : "Todos os exemplares disponiveis desse livro já estão emprestados"
         })
 
-    # Contar as reservas do livro e comparar com a quantidade não emprestada
+    # Contar as reservas do livro (que não são de quem está recebendo o empréstimo)
+    # e comparar com a quantidade não emprestada
     cur.execute(
-        "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? and r.DATA_VALIDADE >= CURRENT_TIMESTAMP",
-        (id,)
+        "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_TIMESTAMP AND r.ID_LEITOR <> ?",
+        (id, id_leitor)
     )
     livros_reservados = cur.fetchone()[0]
     # print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
