@@ -238,7 +238,8 @@ def adicionar_livros():
     )
     con.commit()
 
-    livro_id = cur.lastrowid
+    pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn,))
+    livro_id = pegar_id.fetchone()[0]
 
     # Associando tags ao livro
     for tag in tags:
@@ -311,7 +312,7 @@ def editar_livro(id):
 
     return jsonify({"message": "Livro atualizado com sucesso"}), 200
 
-@app.route('/editar_livro<int:id>', methods=["DELETE"])
+@app.route('/excluir_livro/<int:id>', methods=["DELETE"])
 def livro_delete(id):
     cur = con.cursor()
 
@@ -329,7 +330,7 @@ def livro_delete(id):
     return jsonify({'message': "Livro excluído com sucesso!", })
 
 
-@app.route('/emprestimo_livro<int:id>', methods=["POST"])
+@app.route('/emprestimo_livro/<int:id>', methods=["POST"])
 def emprestar_livros(id):
     data = request.get_json()
     id_leitor = data.get('id_leitor')
@@ -347,6 +348,7 @@ def emprestar_livros(id):
         cur.close()
         return jsonify({"message" : "O livro selecionado não existe"})
 
+    """
     # Checando se o leitor já tem o livro emprestado?
     cur.execute(
         "SELECT 1 FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)"
@@ -356,6 +358,7 @@ def emprestar_livros(id):
         return jsonify({
             "message" : "O leitor já possui o livro"
         })
+    """
 
     # Checando se o livro está disponivel
     cur.execute(
@@ -364,20 +367,32 @@ def emprestar_livros(id):
     )
     qtd_disponivel = cur.fetchone()[0]
     cur.execute(
-        "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)"
+        "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO NOT IN (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)",
+        (id, id,)
     )
-    if qtd_disponivel <= cur.fetchone()[0]:
+    qtd_emprestada = cur.fetchone()[0]
+    livros_nao_emprestados = qtd_disponivel - qtd_emprestada
+    if livros_nao_emprestados <= 0:
         cur.close()
         return jsonify({
             "message" : "Todos os exemplares disponiveis desse livro já estão emprestados"
         })
 
-    cur.execute("select 1 from reservas where id_livro = ? and (select count(id_reserva) from reservas where id_livro = ?) >= ?", (id, id, qtd_disponivel))
-    if cur.fetchone():
+    # Contar as reservas do livro e comparar com a quantidade não emprestada
+    cur.execute(
+        "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? and r.DATA_VALIDADE >= CURRENT_TIMESTAMP",
+        (id,)
+    )
+    livros_reservados = cur.fetchone()[0]
+    print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+    if livros_reservados >= livros_nao_emprestados:
         cur.close()
-        return jsonify("Esse livro já está reservado")
+        return jsonify({
+            "message" : "Os exemplares restantes desse livro já estão reservados"
+        })
 
     # Inserindo o emprestimo no banco de dados
+    print("Emprestando mais 1")
     cur.execute(
         "INSERT INTO EMPRESTIMOS (ID_LEITOR,ID_LIVRO,DATA_DEVOLVER) values (?,?,?)",
         (id_leitor, id, data_devolucao)
@@ -430,7 +445,7 @@ def devolver_livro(id):
         }
     )
 
-@app.route('/reserva_livro<int:id>', methods=["POST"])
+@app.route('/reserva_livro/<int:id>', methods=["POST"])
 def reservar_livros(id):
     data = request.get_json()
     id_leitor = data.get('id_leitor')
@@ -448,7 +463,11 @@ def reservar_livros(id):
         return jsonify({"message": "O livro selecionado não existe"})
 
     # Adicionando a reserva no banco de dados
-    cur.execute("insert into reservas (id_leitor, id_livro) values (?,?, DATEADD(7 DAY TO CURRENT_TIMESTAMP))", (id_leitor,id))
+    cur.execute(
+        "INSERT INTO reservas (id_leitor, id_livro, DATA_VALIDADE, DATA_RESERVADO) "
+        "VALUES (?, ?, CURRENT_TIMESTAMP + 7, CURRENT_TIMESTAMP)",
+        (id_leitor, id)
+    )
 
     con.commit()
     cur.close()
@@ -457,7 +476,7 @@ def reservar_livros(id):
         "message" : "Livro reservado com sucesso"
     })
 
-@app.route('/reserva_livro<int:id>', methods=["DELETE"])
+@app.route('/reserva_livro/<int:id>', methods=["DELETE"])
 def deletar_reservas(id):
     data = request.get_json()
     id_reserva = data.get('id_reserva')
