@@ -506,6 +506,8 @@ def deletar_reservas(id):
 def pesquisar():
     data = request.get_json()
     pesquisa = data.get("pesquisa")
+    filtros = data.get("filtros", [])
+
 
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
@@ -519,10 +521,26 @@ def pesquisar():
         FROM acervo a 
         LEFT JOIN LIVRO_TAGS lt ON a.ID_LIVRO = lt.ID_LIVRO
         LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
-        WHERE a.titulo CONTAINING ? OR t.nome_tag CONTAINING ?
-        ORDER BY a.titulo
+        WHERE a.titulo CONTAINING ?
     """
-    cur.execute(sql, (pesquisa, pesquisa))
+
+    params = [pesquisa]
+
+    if "autor" in filtros:
+        sql += " OR a.autor CONTAINING ?"
+        params.append(pesquisa)
+    if "tag" in filtros:
+        sql += " OR t.nome_tag CONTAINING ?"
+        params.append(pesquisa)
+    if "categoria" in filtros:
+        sql += " OR a.categoria CONTAINING ?"
+        params.append(pesquisa)
+    if "isbn" in filtros:
+        sql += " OR a.isbn = ?"
+        params.append(pesquisa)
+
+    sql += "\norder by a.titulo"
+    cur.execute(sql, params)
     resultados = cur.fetchall()
     if not resultados:
         cur.close()
