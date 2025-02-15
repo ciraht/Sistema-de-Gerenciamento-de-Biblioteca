@@ -281,7 +281,7 @@ def editar_livro(id):
     # Verificando se os dados novos já existem na DataBase
     isbnvelho = acervo_data[3].lower()
     if isbn != isbnvelho:
-        cur.execute("select 1 from acervo where isbn = ?", (isbn,))
+        cur.execute("SELECT 1 FROM ACERVO WHERE ISBN = ? AND ID_LIVRO <> ?", (isbn, id, ))
         if cur.fetchone():
             cur.close()
             return jsonify({"message":"ISBN já cadastrado"})
@@ -321,6 +321,8 @@ def livro_delete(id):
     if not cur.fetchone():
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
+
+    # ANTES: excluir todos os registros das outras tabelas relacionados ao livro??
 
     # Excluir o Livro
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id,))
@@ -384,7 +386,7 @@ def emprestar_livros(id):
         (id,)
     )
     livros_reservados = cur.fetchone()[0]
-    print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+    # print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
     if livros_reservados >= livros_nao_emprestados:
         cur.close()
         return jsonify({
@@ -392,7 +394,7 @@ def emprestar_livros(id):
         })
 
     # Inserindo o emprestimo no banco de dados
-    print("Emprestando mais 1")
+    # print("Emprestando mais 1")
     cur.execute(
         "INSERT INTO EMPRESTIMOS (ID_LEITOR,ID_LIVRO,DATA_DEVOLVER) values (?,?,?)",
         (id_leitor, id, data_devolucao)
@@ -406,7 +408,7 @@ def emprestar_livros(id):
     })
 
 
-@app.route('/devolucao_livro<int:id>', methods=["POST"])
+@app.route('/devolucao_livro/<int:id>', methods=["POST"])
 def devolver_livro(id):
     data = request.get_json()
     id_leitor = data.get('id_leitor')
@@ -425,7 +427,7 @@ def devolver_livro(id):
 
     # Checando se o id leitor tem um livro para devolver
     cur.execute(
-        "SELECT id_emprestimo FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)",
+        "SELECT id_emprestimo FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo NOT IN (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)",
         (id_leitor,id, id_leitor, id))
     emprestimo = cur.fetchone()
     if not emprestimo:
@@ -476,10 +478,8 @@ def reservar_livros(id):
         "message" : "Livro reservado com sucesso"
     })
 
-@app.route('/reserva_livro/<int:id>', methods=["DELETE"])
-def deletar_reservas(id):
-    data = request.get_json()
-    id_reserva = data.get('id_reserva')
+@app.route('/reserva_livro/<int:id_reserva>', methods=["DELETE"])
+def deletar_reservas(id_reserva):
 
     # Checando se todos os dados foram preenchidos
     if not id_reserva:
@@ -491,10 +491,10 @@ def deletar_reservas(id):
     cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva,))
     if not cur.fetchone():
         cur.close()
-        return jsonify({"message": "A reserva selecionado não existe"})
+        return jsonify({"message": "A reserva selecionada não existe"})
 
     # Excluir a Reserva
-    cur.execute("DELETE FROM reserva WHERE id_reserva = ?", (id_reserva,))
+    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva,))
     con.commit()
     cur.close()
 
