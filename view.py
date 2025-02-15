@@ -217,6 +217,7 @@ def adicionar_livros():
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
+    tags = data.get('tags', [])
 
     # Verificando se tem todos os dados
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
@@ -235,6 +236,17 @@ def adicionar_livros():
         "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao) VALUES(?,?,?,?,?,?)",
         (titulo, autor, categoria, isbn, qtd_disponivel, descricao)
     )
+    con.commit()
+
+    livro_id = cur.lastrowid
+
+    # Associando tags ao livro
+    for tag in tags:
+        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
+        tag_id = cur.fetchone()
+        if tag_id:
+            cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
+
     con.commit()
 
     cur.close()
@@ -258,6 +270,7 @@ def editar_livro(id):
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
+    tags = data.get('tags', [])
 
     # Verificando se tem todos os dados
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
@@ -276,6 +289,22 @@ def editar_livro(id):
         "UPDATE acervo SET titulo = ?, autor = ?, categoria = ?, isbn = ?, qtd_disponivel = ?, descricao = ? WHERE id_livro = ?",
         (titulo, autor, categoria, isbn, qtd_disponivel, descricao, id)
     )
+    con.commit()
+
+    cur.execute("delete from livro_tags where id_livro = ? ", (id,))
+    insert_data = []
+
+    # Associando tags ao livro
+    for tag in tags:
+        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
+        tag_id = cur.fetchone()
+        if tag_id:
+            insert_data.append((id, tag_id[0]))
+
+    # Inserindo as associações
+    if insert_data:
+        cur.executemany("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", insert_data)
+
     con.commit()
 
     cur.close()
@@ -456,8 +485,7 @@ def deletar_reservas(id):
 
 @app.route('/pesquisa', methods=["GET"])
 def pesquisar():
-    data = request.get_json()
-    pesquisa = data.get('pesquisa')
+    pesquisa = request.args.get("pesquisa", "").strip()
 
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
@@ -465,7 +493,16 @@ def pesquisar():
     cur = con.cursor()
 
     # Pesquisando texto
-    cur.execute(f"SELECT id_livro, titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE titulo CONTAINING '{pesquisa}'")
+    sql = """
+        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn, 
+                        a.qtd_disponivel, a.descricao 
+        FROM acervo a 
+        LEFT JOIN LIVRO_TAGS lt ON a.ID_LIVRO = lt.ID_LIVRO
+        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+        WHERE a.titulo CONTAINING ? OR t.nome_tag CONTAINING ?
+        ORDER BY a.titulo
+    """
+    cur.execute(sql, (pesquisa, pesquisa))
     resultados = cur.fetchall()
     if not resultados:
         cur.close()
@@ -476,3 +513,11 @@ def pesquisar():
         "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
                         "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6]} for r in resultados]
     }), 202
+
+@app.route('/tags', methods=["GET"])
+def get_tags():
+    cur = con.cursor()
+    cur.execute("SELECT id_tag, nome_tag from tags")
+    tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
+    cur.close()
+    return jsonify(tags),200

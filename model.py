@@ -49,3 +49,13 @@ class Devolucao:
         self.id_emprestimo = id_emprestimo
         self.id_livro = id_livro
         self.data = data
+
+class Tags:
+    def __init__(self, id_tag, nome_tag):
+        self.id_tag = id_tag
+        self.nome_tag = nome_tag
+
+class Livros_Tags:
+    def __init__(self, id_livro, id_tag):
+        self.id_livro = id_livro
+        self.id_tag = id_tag
