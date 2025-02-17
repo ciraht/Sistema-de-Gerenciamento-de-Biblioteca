@@ -69,14 +69,14 @@ def cadastrar():
         # Inserindo usuário na tabela usuarios
         if serBibliotecario:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, ?)",
-                (nome, email, telefone, endereco, senha, 'bibliotecario')
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha) VALUES (?, ?, ?, ?, ?)",
+                (nome, email, telefone, endereco, senha)
             )
             con.commit()
         else:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, ?)",
-                (nome, email, telefone, endereco, senha, 'leitor')
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha) VALUES (?, ?, ?, ?, ?)",
+                (nome, email, telefone, endereco, senha)
             )
             con.commit()
 
