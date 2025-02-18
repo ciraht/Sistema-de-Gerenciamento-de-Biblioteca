@@ -10,7 +10,7 @@ class Usuario:
 
 
 class Livros:
-    def __init__(self, id_livro, titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicacao, idiomas):
+    def __init__(self, id_livro, titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas):
         self.id_livro = id_livro
         self.titulo = titulo
         self.autor = autor
@@ -19,7 +19,14 @@ class Livros:
         self.qtd_disponivel = qtd_disponivel
         self.descricao = descricao
         self.idiomas = idiomas
-        self.ano_publicacao = ano_publicacao
+        self.ano_publicado = ano_publicado
+
+
+class Avaliacoes:
+    def __init__(self, id_livro, valor_total, qtd_avaliacoes):
+        self.id_livro = id_livro
+        self.valor_total = valor_total
+        self.qtd_avaliacoes = qtd_avaliacoes
 
 
 class Emprestimo:
@@ -30,6 +37,13 @@ class Emprestimo:
         self.data_retirada = data_retirada
         self.data_devolver = data_devolver
         self.data_devolvido = data_devolvido
+
+
+class ItensEmprestimo:
+    def __init__(self, id_item, id_livro, id_emprestimo):
+        self.id_item = id_item
+        self.id_livro = id_livro
+        self.id_emprestimo = id_emprestimo
 
 
 class Reserva:

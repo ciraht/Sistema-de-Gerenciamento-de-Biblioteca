@@ -3,9 +3,10 @@ from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 # TODO:
 #  Reformular o sistema de empréstimos, usando ITENS_EMPRESTIMO como um "carrinho de compras"
+#  Testar a rota de deletar livros deletando livros que possuem seu id nas outras tabelas e arrumar se precisar
 #  Rotas de adição de usuários específicos (tipos de usuários)
 #  Rotas para as ações de bibliotecários e administradores
-#  Alguma outra coisa que eu esqueci
+#  Mais alguma outra coisa que eu esqueci
 
 
 @app.route('/cadastro', methods=["POST"])
@@ -343,7 +344,12 @@ def livro_delete(id):
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
 
-    # ANTES: excluir todos os registros das outras tabelas relacionados ao livro??
+    # ANTES: excluir todos os registros das outras tabelas relacionados ao livro
+    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_LIVRO = ?", (id,))
 
     # Excluir o Livro
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id,))
