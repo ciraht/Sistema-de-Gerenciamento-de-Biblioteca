@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 # TODO:
-#  Reformular o sistema de empréstimos, usando ITENS_EMPRESTIMO como um "carrinho de compras"
+#  (Iniciado e incompleto) Reformular o sistema de empréstimos, usando ITENS_EMPRESTIMO como um "carrinho de compras"
 #  Testar a rota de deletar livros deletando livros que possuem seu id nas outras tabelas e arrumar se precisar
 #  Rotas de adição de usuários específicos (bibliotecários e administradores)
 #  Rotas para as ações de bibliotecários e administradores
@@ -218,7 +218,7 @@ def deletar_usuario(id):
 @app.route('/livros', methods=["GET"])
 def trazer_livros():
     cur = con.cursor()
-    cur.execute("SELECT TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
+    cur.execute("SELECT ID_LIVRO, TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
     livros = cur.fetchall()
     cur.close()
     return jsonify(livros)
@@ -359,11 +359,69 @@ def livro_delete(id):
     return jsonify({'message': "Livro excluído com sucesso!", })
 
 
-"""
-@app.route('/carrinho_livros')
-def juntar_livros():
-    data.get()
-"""
+@app.route('/emprestimo_livros')
+def emprestar_livros():
+    data = request.get_json()
+    conjunto_livros = data.get('livros', [])
+    id_leitor = data.get('id_usuario')
+
+    # Checando se todos os dados foram preenchidos
+    if not all([id_leitor, conjunto_livros]):
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+    cur = con.cursor()
+
+    # Checando se todos os livros existem
+    for livro in conjunto_livros:
+        id_livro = livro[0]
+        cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro,))
+        if not cur.fetchone():
+            cur.close()
+            return jsonify({"message": "Um dos livros selecionados não existe"})
+
+    # Criar o empréstimo e depois usar seu id nos itens de ITENS_EMPRESTIMO
+    # Se basear nos passos da rota antiga (a embaixo dessa)
+
+    # Checando se todos os lívros estão disponíveis
+    for livro in conjunto_livros:
+        # Checando se o livro está disponivel
+        cur.execute(
+            "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
+            (livro[0],)
+        )
+        qtd_disponivel = cur.fetchone()[0]
+        cur.execute(
+            "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO NOT IN (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)",
+            (livro[0], livro[0],)
+        )
+        qtd_emprestada = cur.fetchone()[0]
+        livros_nao_emprestados = qtd_disponivel - qtd_emprestada
+        if livros_nao_emprestados <= 0:
+            cur.close()
+            return jsonify({
+                "message": "Todos os exemplares disponiveis desse livro já estão emprestados"
+            })
+
+        # Contar as reservas do livro (que não são de quem está recebendo o empréstimo)
+        # e comparar com a quantidade não emprestada
+        cur.execute(
+            "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_TIMESTAMP AND r.ID_LEITOR <> ?",
+            (livro[0], id_leitor)
+        )
+        livros_reservados = cur.fetchone()[0]
+        # print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+        if livros_reservados >= livros_nao_emprestados:
+            cur.close()
+            return jsonify({
+                "message": "Os exemplares restantes desse livro já estão reservados"
+            })
+
+    cur.execute(
+        "INSERT INTO EMPRESTIMOS (ID_LEITOR, DATA_RETIRADA, DATA_DEVOLVER) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + 7)",
+        (id_leitor)
+    )
+    con.commit()
+    # Agora tem que pegar o ID_EMPRESTIMO desse registro de algum jeito para poder usar para cada item de ITENS_EMPRESTIMO
 
 
 @app.route('/emprestimo_livro/<int:id>', methods=["POST"])
@@ -431,8 +489,8 @@ def emprestar_livros(id):
     # Inserindo o emprestimo no banco de dados
     # print("Emprestando mais 1")
     cur.execute(
-        "INSERT INTO EMPRESTIMOS (ID_LEITOR, ID_LIVRO, DATA_DEVOLVER) values (?, ?, ?)",
-        (id_leitor, id, data_devolucao)
+        "INSERT INTO EMPRESTIMOS (ID_LEITOR, DATA_DEVOLVER) values (?, ?)",
+        (id_leitor, data_devolucao)
     )
 
     con.commit()
@@ -545,7 +603,6 @@ def pesquisar():
     data = request.get_json()
     pesquisa = data.get("pesquisa")
     filtros = data.get("filtros", [])
-
 
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
