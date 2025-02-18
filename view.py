@@ -1,7 +1,11 @@
 from flask import Flask, jsonify, request
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
+# TODO:
+#  Reformular o sistema de empréstimos, usando ITENS_EMPRESTIMO como um "carrinho de compras"
+#  Rotas de adição de usuários específicos (tipos de usuários)
+#  Rotas para as ações de bibliotecários e administradores
+#  Alguma outra coisa que eu esqueci
 
 
 @app.route('/cadastro', methods=["POST"])
@@ -14,7 +18,7 @@ def cadastrar():
         telefone = data.get('telefone')
         endereco = data.get('endereco')
         senha = data.get('senha')
-        serBibliotecario = data.get('serBibliotecario')
+        ser_bibliotecario = data.get('serBibliotecario')
 
         email = email.lower()
 
@@ -67,7 +71,7 @@ def cadastrar():
         senha = generate_password_hash(senha).decode('utf-8')
 
         # Inserindo usuário na tabela usuarios
-        if serBibliotecario:
+        if ser_bibliotecario:
             cur.execute(
                 "INSERT INTO usuarios (nome, email, telefone, endereco, senha) VALUES (?, ?, ?, ?, ?)",
                 (nome, email, telefone, endereco, senha)
@@ -89,7 +93,7 @@ def cadastrar():
             return jsonify({"message": "Erro ao buscar usuário"}), 500
 
         # Inserindo na tabela bibliotecários ou leitores
-        if serBibliotecario:
+        if ser_bibliotecario:
             cur.execute("INSERT INTO bibliotecarios (id_usuario) VALUES (?)", (id_usuario,))
         else:
             cur.execute("INSERT INTO leitores (id_usuario) VALUES (?)", (id_usuario,))
@@ -191,7 +195,8 @@ def usuario_put(id):
 
     return jsonify({"message": "Usuário atualizado com sucesso"}), 200
 
-@app.route('/editar_usuario/<int:id>', methods=['DELETE'])
+
+@app.route('/deletar_usuario/<int:id>', methods=['DELETE'])
 def deletar_usuario(id):
     cur = con.cursor()
 
@@ -208,6 +213,16 @@ def deletar_usuario(id):
 
     return jsonify({'message': "usuario excluído com sucesso!",})
 
+
+@app.route('/livros', methods=["GET"])
+def trazer_livros():
+    cur = con.cursor()
+    cur.execute("SELECT TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
+    livros = cur.fetchall()
+    cur.close()
+    return jsonify(livros)
+
+
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
     data = request.get_json()
@@ -217,10 +232,13 @@ def adicionar_livros():
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
-    tags = data.get('tags', [])
+    ano_publicado = data.get('ano_publicado')
+    idiomas = data.get('idiomas')
+
+    tags = data.get('tags')
 
     # Verificando se tem todos os dados
-    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     cur = con.cursor()
@@ -233,8 +251,8 @@ def adicionar_livros():
 
     # Adicionando os dados na Database
     cur.execute(
-        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao) VALUES(?,?,?,?,?,?)",
-        (titulo, autor, categoria, isbn, qtd_disponivel, descricao)
+        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas) VALUES(?,?,?,?,?,?,?,?)",
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas)
     )
     con.commit()
 
@@ -242,17 +260,19 @@ def adicionar_livros():
     livro_id = pegar_id.fetchone()[0]
 
     # Associando tags ao livro
-    for tag in tags:
-        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
-        tag_id = cur.fetchone()
-        if tag_id:
-            cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
+    if tags:
+        for tag in tags:
+            cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
+            tag_id = cur.fetchone()
+            if tag_id:
+                cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
 
     con.commit()
 
     cur.close()
 
     return jsonify({"message": "Livro cadastrado com sucesso"})
+
 
 @app.route('/editar_livro/<int:id>', methods=["PUT"])
 def editar_livro(id):
@@ -311,6 +331,7 @@ def editar_livro(id):
     cur.close()
 
     return jsonify({"message": "Livro atualizado com sucesso"}), 200
+
 
 @app.route('/excluir_livro/<int:id>', methods=["DELETE"])
 def livro_delete(id):
@@ -448,6 +469,7 @@ def devolver_livro(id):
         }
     )
 
+
 @app.route('/reserva_livro/<int:id>', methods=["POST"])
 def reservar_livros(id):
     data = request.get_json()
@@ -479,6 +501,7 @@ def reservar_livros(id):
         "message" : "Livro reservado com sucesso"
     })
 
+
 @app.route('/reserva_livro/<int:id_reserva>', methods=["DELETE"])
 def deletar_reservas(id_reserva):
 
@@ -502,6 +525,7 @@ def deletar_reservas(id_reserva):
     return jsonify({
         "message" : "Reserva excluída com sucesso"
     })
+
 
 @app.route('/pesquisa', methods=["GET"])
 def pesquisar():
@@ -552,6 +576,7 @@ def pesquisar():
         "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
                         "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6]} for r in resultados]
     }), 202
+
 
 @app.route('/tags', methods=["GET"])
 def get_tags():
