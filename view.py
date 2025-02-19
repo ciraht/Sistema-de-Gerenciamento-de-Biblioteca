@@ -2,8 +2,8 @@ from flask import Flask, jsonify, request
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 # TODO:
-#  (Iniciado e incompleto) Reformular o sistema de empréstimos, usando ITENS_EMPRESTIMO como um "carrinho de compras"
-#  Testar a rota de deletar livros deletando livros que possuem seu id nas outras tabelas e arrumar se precisar
+#  Testar e refazer se precisar todas as rotas de livros
+#  Atualizar a rota /cadastro
 #  Rotas de adição de usuários específicos (bibliotecários e administradores)
 #  Rotas para as ações de bibliotecários e administradores
 #  Mais alguma outra coisa que eu esqueci
@@ -359,7 +359,7 @@ def livro_delete(id):
     return jsonify({'message': "Livro excluído com sucesso!", })
 
 
-@app.route('/emprestimo_livros')
+@app.route('/emprestimo_livros', methods=["POST"])
 def emprestar_livros():
     data = request.get_json()
     conjunto_livros = data.get('livros', [])
@@ -379,9 +379,6 @@ def emprestar_livros():
             cur.close()
             return jsonify({"message": "Um dos livros selecionados não existe"})
 
-    # Criar o empréstimo e depois usar seu id nos itens de ITENS_EMPRESTIMO
-    # Se basear nos passos da rota antiga (a embaixo dessa)
-
     # Checando se todos os lívros estão disponíveis
     for livro in conjunto_livros:
         # Checando se o livro está disponivel
@@ -389,116 +386,48 @@ def emprestar_livros():
             "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
             (livro[0],)
         )
-        qtd_disponivel = cur.fetchone()[0]
+        qtd_maxima = cur.fetchone()[0]
+        # Livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
         cur.execute(
-            "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO NOT IN (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)",
-            (livro[0], livro[0],)
+            "SELECT count(ID_ITEM) FROM ITENS_EMPRESTIMO i WHERE i.id_livro = ? AND i.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.DATA_DEVOLVIDO IS NULL)",
+            (livro[0], )
         )
         qtd_emprestada = cur.fetchone()[0]
-        livros_nao_emprestados = qtd_disponivel - qtd_emprestada
+        livros_nao_emprestados = qtd_maxima - qtd_emprestada
         if livros_nao_emprestados <= 0:
             cur.close()
             return jsonify({
-                "message": "Todos os exemplares disponiveis desse livro já estão emprestados"
+                "message": "Todos os exemplares disponíveis desse livro já estão emprestados"
             })
 
-        # Contar as reservas do livro (que não são de quem está recebendo o empréstimo)
+        # Contar as reservas do livro (que não são de quem está a receber o empréstimo)
         # e comparar com a quantidade não emprestada
         cur.execute(
-            "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_TIMESTAMP AND r.ID_LEITOR <> ?",
+            "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_TIMESTAMP AND r.ID_USUARIO <> ?",
             (livro[0], id_leitor)
         )
         livros_reservados = cur.fetchone()[0]
-        # print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+        print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
         if livros_reservados >= livros_nao_emprestados:
             cur.close()
             return jsonify({
-                "message": "Os exemplares restantes desse livro já estão reservados"
+                "message": "Os exemplares restantes de um dos livros já estão reservados"
             })
 
     cur.execute(
-        "INSERT INTO EMPRESTIMOS (ID_LEITOR, DATA_RETIRADA, DATA_DEVOLVER) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + 7)",
-        (id_leitor)
+        "INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_RETIRADA, DATA_DEVOLVER) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + 7) RETURNING ID_EMPRESTIMO",
+        (id_leitor, )
     )
+    id_emprestimo = cur.fetchone()[0]
     con.commit()
     # Agora tem que pegar o ID_EMPRESTIMO desse registro de algum jeito para poder usar para cada item de ITENS_EMPRESTIMO
 
-
-@app.route('/emprestimo_livro/<int:id>', methods=["POST"])
-def emprestar_livros(id):
-    data = request.get_json()
-    id_leitor = data.get('id_leitor')
-    data_devolucao = data.get('data_devolucao')
-
-    # Checando se todos os dados foram preenchidos
-    if not all([id_leitor, data_devolucao]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
-
-    cur = con.cursor()
-
-    # Checando se o livro existe
-    cur.execute("SELECT 1 from acervo where id_livro = ?", (id, ))
-    if not cur.fetchone():
-        cur.close()
-        return jsonify({"message": "O livro selecionado não existe"})
-
-    """
-    # Checando se o leitor já tem o livro emprestado?
-    cur.execute(
-        "SELECT 1 FROM EMPRESTIMOS e WHERE e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo <> (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)"
-    )
-    if cur.fetchone():
-        cur.close()
-        return jsonify({
-            "message" : "O leitor já possui o livro"
-        })
-    """
-
-    # Checando se o livro está disponivel
-    cur.execute(
-        "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
-        (id, )
-    )
-    qtd_disponivel = cur.fetchone()[0]
-    cur.execute(
-        "SELECT count(id_emprestimo) FROM EMPRESTIMOS e WHERE e.id_livro = ? AND e.ID_EMPRESTIMO NOT IN (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_livro = ?)",
-        (id, id, )
-    )
-    qtd_emprestada = cur.fetchone()[0]
-    livros_nao_emprestados = qtd_disponivel - qtd_emprestada
-    if livros_nao_emprestados <= 0:
-        cur.close()
-        return jsonify({
-            "message" : "Todos os exemplares disponiveis desse livro já estão emprestados"
-        })
-
-    # Contar as reservas do livro (que não são de quem está recebendo o empréstimo)
-    # e comparar com a quantidade não emprestada
-    cur.execute(
-        "SELECT count(id_reserva) FROM RESERVAS r WHERE r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_TIMESTAMP AND r.ID_LEITOR <> ?",
-        (id, id_leitor)
-    )
-    livros_reservados = cur.fetchone()[0]
-    # print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
-    if livros_reservados >= livros_nao_emprestados:
-        cur.close()
-        return jsonify({
-            "message": "Os exemplares restantes desse livro já estão reservados"
-        })
-
-    # Inserindo o emprestimo no banco de dados
-    # print("Emprestando mais 1")
-    cur.execute(
-        "INSERT INTO EMPRESTIMOS (ID_LEITOR, DATA_DEVOLVER) values (?, ?)",
-        (id_leitor, data_devolucao)
-    )
-
+    # Inserindo os registros individuais de cada livro e os ligando ao empréstimo
+    for livro in conjunto_livros:
+        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo, ))
     con.commit()
     cur.close()
-
-    return jsonify({
-        "message": "Livro emprestado com sucesso"
-    })
+    return jsonify("Empréstimo feito com sucesso")
 
 
 @app.route('/devolucao_livro/<int:id>', methods=["POST"])
