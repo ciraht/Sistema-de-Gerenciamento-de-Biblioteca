@@ -5,7 +5,6 @@ from flask_bcrypt import generate_password_hash, check_password_hash
 
 # TODO:
 #  Testar e refazer se precisar todas as rotas de livros
-#  Rotas de adição de usuários específicos (bibliotecários e administradores)
 #  Rotas para as ações de bibliotecários e administradores
 #  Mais alguma outra coisa que eu esqueci
 
@@ -150,6 +149,12 @@ def logar():
                         "id_user": id_user
                     }
                 ), 200
+            elif tipo == 3:
+                return jsonify(
+                    {
+                        "message": "Administrador entrou com sucesso",
+                        "id_user": id_user
+                    })
             else:
                 return jsonify(
                     {
@@ -159,24 +164,62 @@ def logar():
                 ), 200
 
         else:
-            if "tentativas" not in session:
-                session['tentativas'] = {}
+            # Ignorar isso tudo se o usuário for administrador
+            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
+            tipo = tipo.fetchone()[0]
+            if tipo != 3:
                 print(session)
-            if id_user not in session['tentativas']:
-                session['tentativas'][id_user] = 1
-                print(session)
-            else:
-                session['tentativas'][id_user] += 1
-                print(session)
-                if session['tentativas'][id_user] >= 3:
-                    cur.execute("ALTER TABLE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user,))
-                    cur.commit()
-                    cur.close()
-                    return jsonify({"message": "Tentativas excedidas, usuário inativado"}), 401
+                # Usar o ID do usuário diretamente na chave
+                id_user_str = f"usuario-{id_user}"  # A forma correta de formatar a chave
+                if id_user_str not in session['tentativas']:
+                    session['tentativas'][id_user_str] = 1
+                    print('Tentativa 1 para o usuário', id_user)
+                else:
+                    session['tentativas'][id_user_str] += 1
+                    print("TENTATIVAS ATUAIS:", session['tentativas'])
+                    if session['tentativas'][id_user_str] >= 3:
+                        cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user,))
+                        con.commit()
+                        cur.close()
+                        return jsonify({"message": "Tentativas excedidas, usuário inativado"}), 401
 
             return jsonify({"message": "Credenciais inválidas"}), 401
     else:
         return jsonify({"message": "Usuário não encontrado"}), 404
+
+
+@app.route('/reativar_usuario', methods=["PUT"])
+def reativar_usuario():
+    data = request.get_json()
+    id_usuario = data.get("id")
+    cur = con.cursor()
+
+    cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario, ))
+    tipo = cur.fetchone()[0]
+    if tipo == 3:
+        return jsonify({"message": "Esse usuário não pode ser reativado"})
+
+    cur.execute("UPDATE USUARIOS SET ATIVO = TRUE WHERE ID_USUARIO = ?", (id_usuario, ))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Usuário reativado com sucesso"})
+
+
+@app.route('/inativar_usuario', methods=["PUT"])
+def inativar_usuario():
+    data = request.get_json()
+    id_usuario = data.get("id")
+    cur = con.cursor()
+
+    cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario, ))
+    tipo = cur.fetchone()[0]
+    if tipo == 3:
+        return jsonify({"message": "Esse usuário não pode ser inativado"})
+
+    cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_usuario, ))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Usuário inativado com sucesso"})
 
 
 @app.route('/editar_usuario/<int:id>', methods=["PUT"])
