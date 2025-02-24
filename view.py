@@ -253,7 +253,7 @@ def usuario_put(id):
             cur.close()
             return jsonify({"message": "Telefone já cadastrado"})
     if email != emailvelho:
-        cur.execute("select 1 from usuarios where email = ?", (email,))
+        cur.execute("select 1 from usuarios where email = ? AND ID_USUARIO <> ?", (email, id, ))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Email já cadastrado"})
