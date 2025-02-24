@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, redirect, url_for, session
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
+
+
 # TODO:
 #  Testar e refazer se precisar todas as rotas de livros
-#  Atualizar a rota /cadastro
 #  Rotas de adição de usuários específicos (bibliotecários e administradores)
 #  Rotas para as ações de bibliotecários e administradores
 #  Mais alguma outra coisa que eu esqueci
@@ -19,9 +20,14 @@ def cadastrar():
         telefone = data.get('telefone')
         endereco = data.get('endereco')
         senha = data.get('senha')
-        ser_bibliotecario = data.get('ser_bibliotecario')
+        tipo = data.get('tipo')
 
         email = email.lower()
+
+        print([nome, email, telefone, endereco, senha, tipo])
+        # Verificando se tem todos os dados
+        if not all([nome, email, telefone, endereco, senha, tipo]):
+            return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
         if len(senha) < 8:
             return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"})
@@ -53,60 +59,45 @@ def cadastrar():
         if not tem_caract_especial:
             return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
 
-        # Verificando se tem todos os dados
-        if not all([nome, email, telefone, endereco, senha]):
-            return jsonify({"message": "Todos os campos são obrigatórios"}), 400
-
         # Abrindo o Cursor
         cur = con.cursor()
 
         # Checando duplicações
-        cur.execute("SELECT 1 FROM usuarios WHERE email = ?", (email, ))
+        cur.execute("SELECT 1 FROM usuarios WHERE email = ?", (email,))
         if cur.fetchone():
             return jsonify({"message": "Email já cadastrado"}), 409
 
-        cur.execute("SELECT 1 FROM usuarios WHERE telefone = ?", (telefone, ))
+        cur.execute("SELECT 1 FROM usuarios WHERE telefone = ?", (telefone,))
         if cur.fetchone():
             return jsonify({"message": "Telefone já cadastrado"}), 409
 
         senha = generate_password_hash(senha).decode('utf-8')
 
-        # Inserindo usuário na tabela usuarios
-        if ser_bibliotecario:
+        # Inserindo usuário na tabela usuarios conforme seu tipo
+        if tipo == 1:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 1)",
                 (nome, email, telefone, endereco, senha)
             )
             con.commit()
-        else:
+        elif tipo == 2:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 2)",
                 (nome, email, telefone, endereco, senha)
             )
             con.commit()
 
-        # Pegando o ID do usuário
-        cur.execute("SELECT id_usuario FROM usuarios WHERE email = ?", (email, ))
-        resultado = cur.fetchone()
-        if resultado:
-            id_usuario = resultado[0]
-        else:
-            return jsonify({"message": "Erro ao buscar usuário"}), 500
-
-        # Inserindo na tabela bibliotecários ou leitores
-        if ser_bibliotecario:
-            cur.execute("INSERT INTO bibliotecarios (id_usuario) VALUES (?)", (id_usuario, ))
-        else:
-            cur.execute("INSERT INTO leitores (id_usuario) VALUES (?)", (id_usuario, ))
-
-        con.commit()
+        elif tipo == 3:
+            cur.execute(
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 3)",
+                (nome, email, telefone, endereco, senha)
+            )
+            con.commit()
 
         cur.close()
-
         return jsonify(
             {
-                "message": "Usuário cadastrado com sucesso",
-                "id_user" : id_usuario
+                "message": "Usuário cadastrado com sucesso"
             }
         ), 201
 
@@ -122,23 +113,67 @@ def logar():
     senha = data.get('senha')
     email = email.lower()
 
+    print(email, senha)
     cur = con.cursor()
 
     # Checando se a senha está correta
-    cur.execute("SELECT senha, id_usuario FROM usuarios WHERE email = ?", (email, ))
+    cur.execute("SELECT senha, id_usuario FROM usuarios WHERE email = ?", (email,))
     resultado = cur.fetchone()
 
     if resultado:
         senha_hash = resultado[0]
         id_user = resultado[1]
+        cur = con.cursor()
         if check_password_hash(senha_hash, senha):
-            return jsonify(
-                {
-                    "message": "Usuário entrou com sucesso",
-                    "id_user": id_user
-                }
-            ), 200
+            ativo = cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
+            ativo = ativo.fetchone()[0]
+            print(ativo)
+            if not ativo:
+                cur.close()
+                return jsonify(
+                    {
+                        "message": "Este usuário está inativado",
+                        "id_user": id_user
+                    }
+                )
+
+            # Pegar o tipo do usuário para levar à página certa
+            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
+            tipo = tipo.fetchone()[0]
+            print(tipo)
+
+            # ADICIONAR PARA ADMINISTRADOR DEPOIS
+            if tipo == 2:
+                return jsonify(
+                    {
+                        "message": "Bibliotecário entrou com sucesso",
+                        "id_user": id_user
+                    }
+                ), 200
+            else:
+                return jsonify(
+                    {
+                        "message": "Leitor entrou com sucesso",
+                        "id_user": id_user
+                    }
+                ), 200
+
         else:
+            if "tentativas" not in session:
+                session['tentativas'] = {}
+                print(session)
+            if id_user not in session['tentativas']:
+                session['tentativas'][id_user] = 1
+                print(session)
+            else:
+                session['tentativas'][id_user] += 1
+                print(session)
+                if session['tentativas'][id_user] >= 3:
+                    cur.execute("ALTER TABLE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user,))
+                    cur.commit()
+                    cur.close()
+                    return jsonify({"message": "Tentativas excedidas, usuário inativado"}), 401
+
             return jsonify({"message": "Credenciais inválidas"}), 401
     else:
         return jsonify({"message": "Usuário não encontrado"}), 404
@@ -147,7 +182,7 @@ def logar():
 @app.route('/editar_usuario/<int:id>', methods=["PUT"])
 def usuario_put(id):
     cur = con.cursor()
-    cur.execute("SELECT id_usuario, nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id, ))
+    cur.execute("SELECT id_usuario, nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id,))
     usuario_data = cur.fetchone()
 
     if not usuario_data:
@@ -175,12 +210,12 @@ def usuario_put(id):
     telefone = telefone.lower()
     telefonevelho = telefonevelho.lower()
     if telefone != telefonevelho or email != emailvelho:
-        cur.execute("select 1 from usuarios where telefone = ?", (telefone, ))
+        cur.execute("select 1 from usuarios where telefone = ?", (telefone,))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Telefone já cadastrado"})
     if email != emailvelho:
-        cur.execute("select 1 from usuarios where email = ?", (email, ))
+        cur.execute("select 1 from usuarios where email = ?", (email,))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Email já cadastrado"})
@@ -202,13 +237,13 @@ def deletar_usuario(id):
     cur = con.cursor()
 
     # Verificar se o usuario existe
-    cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id, ))
+    cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"error": "usuario não encontrado"}), 404
 
     # Excluir o usuario
-    cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id, ))
+    cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id,))
     con.commit()
     cur.close()
 
@@ -240,11 +275,10 @@ def get_livros():
             FROM ACERVO a
             ORDER BY a.id_livro;
         """
-    )
-    
+                )
+
     livros = []
     for r in cur.fetchall():
-        
         cur.execute("""
             SELECT t.id_tag, t.nome_tag
             FROM LIVRO_TAGS lt
@@ -256,24 +290,22 @@ def get_livros():
         selectedTags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
 
         livro = {
-            'id': r[0], 
-            'titulo': r[1], 
-            'autor': r[2], 
-            'categoria': r[3], 
-            'isbn': r[4], 
-            'qtd_disponivel': r[5], 
+            'id': r[0],
+            'titulo': r[1],
+            'autor': r[2],
+            'categoria': r[3],
+            'isbn': r[4],
+            'qtd_disponivel': r[5],
             'descricao': r[6],
             'idiomas': r[7],
             'ano_publicacao': r[8],
             'selectedTags': selectedTags,
         }
 
-
         livros.append(livro)
 
     cur.close()
     return jsonify(livros), 200
-
 
 
 # @app.route('/adicionar_livros', methods=["POST"])
@@ -383,7 +415,8 @@ def adicionar_livros():
 @app.route('/editar_livro/<int:id>', methods=["PUT"])
 def editar_livro(id):
     cur = con.cursor()
-    cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?", (id, ))
+    cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
+                (id,))
     acervo_data = cur.fetchone()
 
     if not acervo_data:
@@ -407,10 +440,10 @@ def editar_livro(id):
     # Verificando se os dados novos já existem na DataBase
     isbnvelho = acervo_data[3].lower()
     if isbn != isbnvelho:
-        cur.execute("SELECT 1 FROM ACERVO WHERE ISBN = ? AND ID_LIVRO <> ?", (isbn, id, ))
+        cur.execute("SELECT 1 FROM ACERVO WHERE ISBN = ? AND ID_LIVRO <> ?", (isbn, id,))
         if cur.fetchone():
             cur.close()
-            return jsonify({"message":"ISBN já cadastrado"})
+            return jsonify({"message": "ISBN já cadastrado"})
 
     cur.execute(
         "UPDATE acervo SET titulo = ?, autor = ?, categoria = ?, isbn = ?, qtd_disponivel = ?, descricao = ? WHERE id_livro = ?",
@@ -418,12 +451,12 @@ def editar_livro(id):
     )
     con.commit()
 
-    cur.execute("delete from livro_tags where id_livro = ? ", (id, ))
+    cur.execute("delete from livro_tags where id_livro = ? ", (id,))
     insert_data = []
 
     # Associando tags ao livro
     for tag in tags:
-        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag, ))
+        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
         tag_id = cur.fetchone()
         if tag_id:
             insert_data.append((id, tag_id[0]))
@@ -444,20 +477,20 @@ def livro_delete(id):
     cur = con.cursor()
 
     # Verificar se o livro existe
-    cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id, ))
+    cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
 
     # ANTES: excluir todos os registros das outras tabelas relacionados ao livro
-    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id, ))
-    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id, ))
-    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
-    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id, ))
-    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_LIVRO = ?", (id, ))
+    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id,))
+    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_LIVRO = ?", (id,))
 
     # Excluir o Livro
-    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id, ))
+    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id,))
     con.commit()
     cur.close()
 
@@ -495,7 +528,7 @@ def emprestar_livros():
         # Livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
         cur.execute(
             "SELECT count(ID_ITEM) FROM ITENS_EMPRESTIMO i WHERE i.id_livro = ? AND i.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.DATA_DEVOLVIDO IS NULL)",
-            (livro[0], )
+            (livro[0],)
         )
         qtd_emprestada = cur.fetchone()[0]
         livros_nao_emprestados = qtd_maxima - qtd_emprestada
@@ -512,7 +545,8 @@ def emprestar_livros():
             (livro[0], id_leitor)
         )
         livros_reservados = cur.fetchone()[0]
-        print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+        print(
+            f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
         if livros_reservados >= livros_nao_emprestados:
             cur.close()
             return jsonify({
@@ -521,7 +555,7 @@ def emprestar_livros():
 
     cur.execute(
         "INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_RETIRADA, DATA_DEVOLVER) VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + 7) RETURNING ID_EMPRESTIMO",
-        (id_leitor, )
+        (id_leitor,)
     )
     id_emprestimo = cur.fetchone()[0]
     con.commit()
@@ -529,7 +563,7 @@ def emprestar_livros():
 
     # Inserindo os registros individuais de cada livro e os ligando ao empréstimo
     for livro in conjunto_livros:
-        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo, ))
+        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo,))
     con.commit()
     cur.close()
     return jsonify("Empréstimo feito com sucesso")
@@ -547,7 +581,7 @@ def devolver_livro(id):
     cur = con.cursor()
 
     # Checando se o livro existe
-    cur.execute("SELECT 1 from acervo where id_livro = ?", (id, ))
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "O livro selecionado não existe"})
@@ -563,14 +597,15 @@ def devolver_livro(id):
 
     emprestimo = emprestimo[0]
 
-    cur.execute("insert into devolucoes (id_leitor, id_livro, id_emprestimo) values (?, ?, ?)", (id_leitor, id, emprestimo))
+    cur.execute("insert into devolucoes (id_leitor, id_livro, id_emprestimo) values (?, ?, ?)",
+                (id_leitor, id, emprestimo))
 
     con.commit()
     cur.close()
 
     return jsonify(
         {
-            "message" : "Livro devolvido com sucesso"
+            "message": "Livro devolvido com sucesso"
         }
     )
 
@@ -587,7 +622,7 @@ def reservar_livros(id):
     cur = con.cursor()
 
     # Checando se o livro existe
-    cur.execute("SELECT 1 from acervo where id_livro = ?", (id, ))
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "O livro selecionado não existe"})
@@ -603,13 +638,12 @@ def reservar_livros(id):
     cur.close()
 
     return jsonify({
-        "message" : "Livro reservado com sucesso"
+        "message": "Livro reservado com sucesso"
     })
 
 
 @app.route('/reserva_livro/<int:id_reserva>', methods=["DELETE"])
 def deletar_reservas(id_reserva):
-
     # Checando se todos os dados foram preenchidos
     if not id_reserva:
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
@@ -617,18 +651,18 @@ def deletar_reservas(id_reserva):
     cur = con.cursor()
 
     # Checando se a reserva existe
-    cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva, ))
+    cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "A reserva selecionada não existe"})
 
     # Excluir a Reserva
-    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva, ))
+    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva,))
     con.commit()
     cur.close()
 
     return jsonify({
-        "message" : "Reserva excluída com sucesso"
+        "message": "Reserva excluída com sucesso"
     })
 
 
@@ -688,7 +722,8 @@ def get_tags():
     cur.execute("SELECT id_tag, nome_tag from tags")
     tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
     cur.close()
-    return jsonify(tags),200
+    return jsonify(tags), 200
+
 
 @app.route('/tags/<int:id>', methods=["GET"])
 def get_tag(id):
@@ -696,5 +731,4 @@ def get_tag(id):
     cur.execute("SELECT id_tag, id_livro from livros_tags where id_livro = ?", (id,))
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
     cur.close()
-    return jsonify(tags),200
-
+    return jsonify(tags), 200

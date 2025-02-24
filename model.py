@@ -1,5 +1,5 @@
-class Usuario:
-    def __init__(self, id_usuario, tipo, nome, email, telefone, endereco, senha):
+class Usuarios:
+    def __init__(self, id_usuario, tipo, nome, email, telefone, endereco, senha, ativo):
         self.id_usuario = id_usuario
         self.nome = nome
         self.email = email
@@ -7,6 +7,7 @@ class Usuario:
         self.telefone = telefone
         self.endereco = endereco
         self.senha = senha
+        self.ativo = ativo
 
 
 class Livros:
