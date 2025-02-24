@@ -104,6 +104,9 @@ def cadastrar():
         return jsonify({"message": f"Erro: {str(e)}"}), 500
 
 
+global_contagem_erros = {}
+
+
 @app.route('/login', methods=["POST"])
 def logar():
     # Recebendo informações
@@ -139,9 +142,6 @@ def logar():
             # Pegar o tipo do usuário para levar à página certa
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
             tipo = tipo.fetchone()[0]
-            print(tipo)
-
-            # ADICIONAR PARA ADMINISTRADOR DEPOIS
             if tipo == 2:
                 return jsonify(
                     {
@@ -168,17 +168,18 @@ def logar():
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
             tipo = tipo.fetchone()[0]
             if tipo != 3:
-                print(session)
-                if 'tentativas' not in session:
-                    session['tentativas'] = {}
+                print(f"Primeiro: {global_contagem_erros}")
                 id_user_str = f"usuario-{id_user}"
-                if id_user_str not in session['tentativas']:
-                    session['tentativas'][id_user_str] = 1
-                    print('Tentativa 1 para o usuário', id_user)
+                if id_user_str not in global_contagem_erros:
+                    global_contagem_erros[id_user_str] = 1
                 else:
-                    session['tentativas'][id_user_str] += 1
-                    print("TENTATIVAS ATUAIS:", session['tentativas'])
-                    if session['tentativas'][id_user_str] >= 3:
+                    if global_contagem_erros[id_user_str] > 3:
+                        return jsonify({"message": "Tentativas excedidas, usuário já está inativado"}), 401
+                    global_contagem_erros[id_user_str] += 1
+
+                    print(f"Segundo: {global_contagem_erros}")
+
+                    if global_contagem_erros[id_user_str] == 3:
                         cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user,))
                         con.commit()
                         cur.close()
