@@ -238,20 +238,19 @@ def usuario_put(id):
     email = data.get('email')
     telefone = data.get('telefone')
     endereco = data.get('endereco')
+    senha = data.get('senha')
 
     # Verificando se tem todos os dados
-    if not all([nome, email, telefone, endereco]):
+    if not all([nome, email, telefone, endereco, senha]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     # Verificando se os dados novos já existem na DataBase
-    cur.execute("select email, telefone from usuarios where id_usuario = ?", (id))
+    cur.execute("select email, telefone from usuarios where id_usuario = ?", (id, ))
     checagem = cur.fetchone()
     emailvelho = checagem[0]
     telefonevelho = checagem[1]
     emailvelho = emailvelho.lower()
     email = email.lower()
-    telefone = telefone.lower()
-    telefonevelho = telefonevelho.lower()
     if telefone != telefonevelho or email != emailvelho:
         cur.execute("select 1 from usuarios where telefone = ?", (telefone,))
         if cur.fetchone():
@@ -263,10 +262,41 @@ def usuario_put(id):
             cur.close()
             return jsonify({"message": "Email já cadastrado"})
 
+    # Verificações de senha
+    if len(senha) < 8:
+        return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"})
+
+    tem_maiuscula = False
+    tem_minuscula = False
+    tem_numero = False
+    tem_caract_especial = False
+    caracteres_especiais = "!@#$%^&*(),.?\":{}|<>"
+
+    # Verifica cada caractere da senha
+    for char in senha:
+        if char.isupper():
+            tem_maiuscula = True
+        elif char.islower():
+            tem_minuscula = True
+        elif char.isdigit():
+            tem_numero = True
+        elif char in caracteres_especiais:
+            tem_caract_especial = True
+
+    # Verifica se todos os critérios foram atendidos
+    if not tem_maiuscula:
+        return jsonify({"message": "A senha deve conter pelo menos uma letra maiúscula."})
+    if not tem_minuscula:
+        return jsonify({"message": "A senha deve conter pelo menos uma letra minúscula."})
+    if not tem_numero:
+        return jsonify({"message": "A senha deve conter pelo menos um número."})
+    if not tem_caract_especial:
+        return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
+
     # Atualizando as informações
     cur.execute(
-        "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
-        (nome, email, telefone, endereco, id)
+        "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ?, senha = ? WHERE id_usuario = ?",
+        (nome, email, telefone, endereco, senha, id)
     )
     con.commit()
 
