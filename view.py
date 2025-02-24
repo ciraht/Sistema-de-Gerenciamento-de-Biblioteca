@@ -215,14 +215,116 @@ def deletar_usuario(id):
     return jsonify({'message': "usuario excluído com sucesso!", })
 
 
-@app.route('/livros', methods=["GET"])
-def trazer_livros():
-    cur = con.cursor()
-    cur.execute("SELECT ID_LIVRO, TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
-    livros = cur.fetchall()
-    cur.close()
-    return jsonify(livros)
+# @app.route('/livros', methods=["GET"])
+# def trazer_livros():
+#     cur = con.cursor()
+#     cur.execute("SELECT ID_LIVRO, TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
+#     livros = cur.fetchall()
+#     cur.close()
+#     return jsonify(livros)
 
+@app.route('/livros', methods=["GET"])
+def get_livros():
+    cur = con.cursor()
+    cur.execute("""
+            SELECT 
+                a.id_livro,
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL, 
+                a.DESCRICAO,
+                a.idiomas, 
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            ORDER BY a.id_livro;
+        """
+    )
+    
+    livros = []
+    for r in cur.fetchall():
+        
+        cur.execute("""
+            SELECT t.id_tag, t.nome_tag
+            FROM LIVRO_TAGS lt
+            LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+            WHERE lt.ID_LIVRO = ?
+        """, (r[0],))
+        tags = cur.fetchall()
+
+        selectedTags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+        livro = {
+            'id': r[0], 
+            'titulo': r[1], 
+            'autor': r[2], 
+            'categoria': r[3], 
+            'isbn': r[4], 
+            'qtd_disponivel': r[5], 
+            'descricao': r[6],
+            'idiomas': r[7],
+            'ano_publicacao': r[8],
+            'selectedTags': selectedTags,
+        }
+
+
+        livros.append(livro)
+
+    cur.close()
+    return jsonify(livros), 200
+
+
+
+# @app.route('/adicionar_livros', methods=["POST"])
+# def adicionar_livros():
+#     data = request.get_json()
+#     titulo = data.get('titulo')
+#     autor = data.get('autor')
+#     categoria = data.get('categoria')
+#     isbn = data.get('isbn')
+#     qtd_disponivel = data.get('qtd_disponivel')
+#     descricao = data.get('descricao')
+#     ano_publicado = data.get('ano_publicado')
+#     idiomas = data.get('idiomas')
+
+#     tags = data.get('tags')
+
+#     # Verificando se tem todos os dados
+#     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
+#         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+
+#     cur = con.cursor()
+
+#     # Procurando por duplicados pelo ISBN
+#     cur.execute("select 1 from acervo where isbn = ?", (isbn, ))
+#     if cur.fetchone():
+#         cur.close()
+#         return jsonify({"error": "ISBN já cadastrada"})
+
+#     # Adicionando os dados na Database
+#     cur.execute(
+#         "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+#         (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas)
+#     )
+#     con.commit()
+
+#     pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn, ))
+#     livro_id = pegar_id.fetchone()[0]
+
+#     # Associando tags ao livro
+#     if tags:
+#         for tag in tags:
+#             cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag, ))
+#             tag_id = cur.fetchone()
+#             if tag_id:
+#                 cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
+
+#     con.commit()
+
+#     cur.close()
+
+#     return jsonify({"message": "Livro cadastrado com sucesso"})
 
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
@@ -233,40 +335,43 @@ def adicionar_livros():
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
-    ano_publicado = data.get('ano_publicado')
-    idiomas = data.get('idiomas')
+    tags = data.get('selectedTags', [])
 
-    tags = data.get('tags')
+    print(tags)
 
-    # Verificando se tem todos os dados
-    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     cur = con.cursor()
 
-    # Procurando por duplicados pelo ISBN
-    cur.execute("select 1 from acervo where isbn = ?", (isbn, ))
+    # Verificando se a ISBN já está cadastrada
+    cur.execute("SELECT 1 FROM acervo WHERE isbn = ?", (isbn,))
     if cur.fetchone():
         cur.close()
-        return jsonify({"error": "ISBN já cadastrada"})
+        return jsonify({"error": "ISBN já cadastrada"}), 404
 
     # Adicionando os dados na Database
     cur.execute(
-        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas)
+        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao) VALUES(?,?,?,?,?,?)",
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao)
     )
     con.commit()
 
-    pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn, ))
-    livro_id = pegar_id.fetchone()[0]
+    # Recuperando o ID do livro inserido
+    pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn,))
+    livro_id = pegar_id.fetchone()
+
+    if not livro_id:
+        cur.close()
+        return jsonify({"error": "Erro ao recuperar ID do livro"}), 500
+
+    livro_id = livro_id[0]
 
     # Associando tags ao livro
-    if tags:
-        for tag in tags:
-            cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag, ))
-            tag_id = cur.fetchone()
-            if tag_id:
-                cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
+    for tag in tags:
+        tag_id = tag.get('id')
+        if tag_id:
+            cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
 
     con.commit()
 
@@ -583,4 +688,13 @@ def get_tags():
     cur.execute("SELECT id_tag, nome_tag from tags")
     tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
     cur.close()
-    return jsonify(tags), 200
+    return jsonify(tags),200
+
+@app.route('/tags/<int:id>', methods=["GET"])
+def get_tag(id):
+    cur = con.cursor()
+    cur.execute("SELECT id_tag, id_livro from livros_tags where id_livro = ?", (id,))
+    tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
+    cur.close()
+    return jsonify(tags),200
+
