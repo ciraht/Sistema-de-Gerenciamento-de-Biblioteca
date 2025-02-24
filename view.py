@@ -3,12 +3,6 @@ from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 
 
-# TODO:
-#  Testar e refazer se precisar todas as rotas de livros
-#  Rotas para as ações de bibliotecários e administradores
-#  Mais alguma outra coisa que eu esqueci
-
-
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
     try:
@@ -254,7 +248,7 @@ def usuario_put(id):
     emailvelho = emailvelho.lower()
     email = email.lower()
     if telefone != telefonevelho or email != emailvelho:
-        cur.execute("select 1 from usuarios where telefone = ?", (telefone,))
+        cur.execute("select 1 from usuarios where telefone = ? AND ID_USUARIO <> ?", (telefone, id, ))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Telefone já cadastrado"})
