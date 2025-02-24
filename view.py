@@ -35,7 +35,7 @@ def cadastrar():
         tem_minuscula = False
         tem_numero = False
         tem_caract_especial = False
-        caracteres_especiais = "!@#$%^&*(),.?\":{}|<>"
+        caracteres_especiais = "!@#$%^&*(),-.?\":{}|<>"
 
         # Verifica cada caractere da senha
         for char in senha:
@@ -169,8 +169,9 @@ def logar():
             tipo = tipo.fetchone()[0]
             if tipo != 3:
                 print(session)
-                # Usar o ID do usuário diretamente na chave
-                id_user_str = f"usuario-{id_user}"  # A forma correta de formatar a chave
+                if 'tentativas' not in session:
+                    session['tentativas'] = {}
+                id_user_str = f"usuario-{id_user}"
                 if id_user_str not in session['tentativas']:
                     session['tentativas'][id_user_str] = 1
                     print('Tentativa 1 para o usuário', id_user)
@@ -270,7 +271,7 @@ def usuario_put(id):
     tem_minuscula = False
     tem_numero = False
     tem_caract_especial = False
-    caracteres_especiais = "!@#$%^&*(),.?\":{}|<>"
+    caracteres_especiais = "!@#$%^&*(),-.?\":{}|<>"
 
     # Verifica cada caractere da senha
     for char in senha:
@@ -293,6 +294,7 @@ def usuario_put(id):
     if not tem_caract_especial:
         return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
 
+    senha = generate_password_hash(senha)
     # Atualizando as informações
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ?, senha = ? WHERE id_usuario = ?",
