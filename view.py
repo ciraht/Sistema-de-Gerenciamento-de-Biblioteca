@@ -605,7 +605,6 @@ def emprestar_livros():
 
     # Checando se todos os lívros estão disponíveis
     for livro in conjunto_livros:
-        # Checando se o livro está disponivel
         cur.execute(
             "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
             (livro[0],)
@@ -634,8 +633,7 @@ def emprestar_livros():
             (livro[0], id_leitor)
         )
         livros_reservados = cur.fetchone()[0]
-        print(
-            f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+        print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
         if livros_reservados >= livros_nao_emprestados:
             cur.close()
             return jsonify({
@@ -702,6 +700,34 @@ def devolver_livro():
         }
     )
 """
+
+
+@app.route('/devolver_emprestimo', methods=["PUT"])
+def devolver_emprestimo():
+    data = request.get_json()
+    id_emprestimo = data.get("id_emprestimo")
+    cur = con.cursor()
+
+    # Verificações
+    if not id_emprestimo:
+        # Se não recebeu o id
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+    else:
+        # Se o ID não existe no banco de dados
+        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
+        if not cur.fetchone():
+            return jsonify({"message": "Id de empréstimo não encontrado"}), 404
+
+    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND DATA_DEVOLVIDO IS NOT NULL", (id_emprestimo, ))
+    if cur.fetchone():
+        return jsonify({"message": "Empréstimo já devolvido"}), 400
+
+    # Devolver o empréstimo
+    cur.execute("UPDATE EMPRESTIMOS SET DATA_DEVOLVIDO = CURRENT_DATE WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Devolução feita com sucesso"}), 200
+
 
 @app.route('/renovar_emprestimo', methods=["PUT"])
 def renovar_emprestimo():
