@@ -679,10 +679,10 @@ def devolver_livro():
 
     # Checando se o id leitor tem um livro para devolver
     cur.execute(
-        """SELECT id_emprestimo FROM EMPRESTIMOS e WHERE
-         e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo NOT IN 
-        (SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?)""",
-        (id_leitor, id_livro, id_leitor, id_livro))
+        #   SELECT id_emprestimo FROM EMPRESTIMOS e WHERE
+         #e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo NOT IN 
+        #(SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?),
+        #(id_leitor, id_livro, id_leitor, id_livro))
     emprestimo = cur.fetchone()
     if not emprestimo:
         cur.close()
