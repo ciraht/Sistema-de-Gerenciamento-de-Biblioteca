@@ -312,6 +312,18 @@ def deletar_usuario(id):
         cur.close()
         return jsonify({"error": "usuario não encontrado"}), 404
 
+    # FAZER UMA VERIFICAÇÃO DE TOKENS PARA VER SE QUEM ESTÁ FAZENDO ISSO É ADMIN
+    # (quando puder usar tokens)
+
+    # Excluir os registros que usam o id como chave estrangeira
+    cur.execute("""
+    DELETE FROM ITENS_EMPRESTIMO i WHERE
+     i.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.ID_USUARIO = ?)
+     """, (id, ))
+    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_USUARIO = ?", (id, ))
+    cur.execute("DELETE FROM RESERVAS WHERE ID_USUARIO = ?", (id, ))
+    cur.execute("DELETE FROM MULTAS WHERE ID_USUARIO = ?", (id, ))
+
     # Excluir o usuario
     cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id,))
     con.commit()
@@ -319,14 +331,6 @@ def deletar_usuario(id):
 
     return jsonify({'message': "usuario excluído com sucesso!", })
 
-
-# @app.route('/livros', methods=["GET"])
-# def trazer_livros():
-#     cur = con.cursor()
-#     cur.execute("SELECT ID_LIVRO, TITULO, AUTOR, CATEGORIA, ISBN, QTD_DISPONIVEL, DESCRICAO, IDIOMAS, ANO_PUBLICADO FROM ACERVO")
-#     livros = cur.fetchall()
-#     cur.close()
-#     return jsonify(livros)
 
 @app.route('/livros', methods=["GET"])
 def get_livros():
@@ -357,7 +361,7 @@ def get_livros():
         """, (r[0],))
         tags = cur.fetchall()
 
-        selectedTags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
 
         livro = {
             'id': r[0],
@@ -369,7 +373,7 @@ def get_livros():
             'descricao': r[6],
             'idiomas': r[7],
             'ano_publicacao': r[8],
-            'selectedTags': selectedTags,
+            'selectedTags': selected_tags,
         }
 
         livros.append(livro)
@@ -437,11 +441,13 @@ def adicionar_livros():
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
+    idiomas = data.get('idiomas')
+    ano_publicado = data.get("ano_publicado")
     tags = data.get('selectedTags', [])
 
     print(tags)
 
-    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     cur = con.cursor()
@@ -454,20 +460,17 @@ def adicionar_livros():
 
     # Adicionando os dados na Database
     cur.execute(
-        "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao) VALUES(?,?,?,?,?,?)",
-        (titulo, autor, categoria, isbn, qtd_disponivel, descricao)
+        """INSERT INTO 
+        ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado) 
+        VALUES(?,?,?,?,?,?,?,?) RETURNING ID_LIVRO""",
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado)
     )
+    livro_id = cur.fetchone()[0]
     con.commit()
-
-    # Recuperando o ID do livro inserido
-    pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn,))
-    livro_id = pegar_id.fetchone()
 
     if not livro_id:
         cur.close()
         return jsonify({"error": "Erro ao recuperar ID do livro"}), 500
-
-    livro_id = livro_id[0]
 
     # Associando tags ao livro
     for tag in tags:
