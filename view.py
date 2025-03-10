@@ -1,6 +1,28 @@
-from flask import Flask, jsonify, request, redirect, url_for, session
+import os
+import jwt
+import datetime
+from flask import Flask, jsonify, request, send_file
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
+from fpdf import FPDF
+
+senha_secreta = app.config['SECRET_KEY']
+
+
+def generate_token(user_id):
+    payload = {
+        "id_usuario": user_id,
+        'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=30)
+               }
+    token = jwt.encode(payload, senha_secreta, algorithm='HS256')
+    return token
+
+
+def remover_bearer(token):
+    if token.startswith("Bearer "):
+        return token[len("Bearer "):]
+    else:
+        return token
 
 
 @app.route('/cadastro', methods=["POST"])
@@ -136,24 +158,25 @@ def logar():
             # Pegar o tipo do usuário para levar à página certa
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
             tipo = tipo.fetchone()[0]
+            token = generate_token(id_user)
             if tipo == 2:
                 return jsonify(
                     {
                         "message": "Bibliotecário entrou com sucesso",
-                        "id_user": id_user
+                        "token:": token
                     }
                 ), 200
             elif tipo == 3:
                 return jsonify(
                     {
                         "message": "Administrador entrou com sucesso",
-                        "id_user": id_user
+                        "token:": token
                     })
             else:
                 return jsonify(
                     {
                         "message": "Leitor entrou com sucesso",
-                        "id_user": id_user
+                        "token:": token
                     }
                 ), 200
 
@@ -186,9 +209,27 @@ def logar():
 
 @app.route('/reativar_usuario', methods=["PUT"])
 def reativar_usuario():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    admin = cur.fetchone()[0]
+    if not admin:
+        return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
+
     data = request.get_json()
     id_usuario = data.get("id")
-    cur = con.cursor()
 
     cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario, ))
     tipo = cur.fetchone()[0]
@@ -203,6 +244,33 @@ def reativar_usuario():
 
 @app.route('/inativar_usuario', methods=["PUT"])
 def inativar_usuario():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    admin = cur.fetchone()[0]
+    if not admin:
+        return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3", (id_logado,))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    admin = cur.fetchone()[0]
+    if not admin:
+        return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
+
     data = request.get_json()
     id_usuario = data.get("id")
     cur = con.cursor()
@@ -220,6 +288,17 @@ def inativar_usuario():
 
 @app.route('/editar_usuario/', methods=["PUT"])
 def usuario_put():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
     data = request.get_json()
     id_usuario = data.get("id_usuario")
 
@@ -306,6 +385,25 @@ def usuario_put():
 
 @app.route('/deletar_usuario/', methods=['DELETE'])
 def deletar_usuario():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    admin = cur.fetchone()[0]
+    if not admin:
+        return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
+
     cur = con.cursor()
 
     data = request.get_json()
@@ -438,6 +536,25 @@ def get_livros():
 
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    biblio = cur.fetchone()[0]
+    if not biblio:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+
     data = request.get_json()
     titulo = data.get('titulo')
     autor = data.get('autor')
@@ -491,6 +608,25 @@ def adicionar_livros():
 
 @app.route('/editar_livro/', methods=["PUT"])
 def editar_livro():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    biblio = cur.fetchone()[0]
+    if not biblio:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+
     data = request.get_json()
     id_livro = data.get('id_livro')
 
@@ -557,6 +693,25 @@ def editar_livro():
 
 @app.route('/excluir_livro/', methods=["DELETE"])
 def livro_delete():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado, ))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    biblio = cur.fetchone()[0]
+    if not biblio:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+
     data = request.get_json()
     id_livro = data.get('id_livro')
 
@@ -585,6 +740,17 @@ def livro_delete():
 
 @app.route('/emprestimo_livros', methods=["POST"])
 def emprestar_livros():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
     data = request.get_json()
     conjunto_livros = data.get('livros', [])
     id_leitor = data.get('id_usuario')
@@ -656,54 +822,19 @@ def emprestar_livros():
     return jsonify("Empréstimo feito com sucesso")
 
 
-"""
-@app.route('/devolucao_livro/', methods=["POST"])
-def devolver_livro():
-    data = request.get_json()
-    id_livro = data.get('id_livro')
-    id_leitor = data.get('id_leitor')
-
-    # Checando se todos os dados foram preenchidos
-    if not id_leitor:
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
-
-    cur = con.cursor()
-
-    # Checando se o livro existe
-    cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro,))
-    if not cur.fetchone():
-        cur.close()
-        return jsonify({"message": "O livro selecionado não existe"})
-
-    # Checando se o id leitor tem um livro para devolver
-    cur.execute(
-        #   SELECT id_emprestimo FROM EMPRESTIMOS e WHERE
-         #e.ID_LEITOR = ? AND id_livro = ? AND id_emprestimo NOT IN 
-        #(SELECT d.id_emprestimo FROM DEVOLUCOES d WHERE d.id_leitor = ? AND d.id_livro = ?),
-        #(id_leitor, id_livro, id_leitor, id_livro))
-    emprestimo = cur.fetchone()
-    if not emprestimo:
-        cur.close()
-        return jsonify({"error": "O leitor não emprestou esse livro"})
-
-    emprestimo = emprestimo[0]
-
-    cur.execute("insert into devolucoes (id_leitor, id_livro, id_emprestimo) values (?, ?, ?)",
-                (id_leitor, id_livro, emprestimo))
-
-    con.commit()
-    cur.close()
-
-    return jsonify(
-        {
-            "message": "Livro devolvido com sucesso"
-        }
-    )
-"""
-
-
 @app.route('/devolver_emprestimo', methods=["PUT"])
 def devolver_emprestimo():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
     cur = con.cursor()
@@ -731,6 +862,16 @@ def devolver_emprestimo():
 
 @app.route('/renovar_emprestimo', methods=["PUT"])
 def renovar_emprestimo():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
     dias = data.get("dias")
@@ -756,6 +897,16 @@ def renovar_emprestimo():
 
 @app.route('/reserva_livro', methods=["POST"])
 def reservar_livros():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
     data = request.get_json()
     id_leitor = data.get('id_leitor')
     id_livro = data.get('id_livro')
@@ -789,6 +940,16 @@ def reservar_livros():
 
 @app.route('/cancelar_reserva', methods=["DELETE"])
 def deletar_reservas():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
     data = request.get_json()
     id_reserva = data.get("id_reserva")
 
