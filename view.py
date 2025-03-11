@@ -1074,6 +1074,106 @@ def reservar_livros():
     })
 
 
+@app.route('/upload/usuario', methods=["POST"])
+def enviar_imagem_usuario():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    imagem = request.files.get("imagem")
+    id_usuario = payload["id_usuario"]
+    print(id_usuario)
+
+    # Verificações de Imagem
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Formato de imagem não autorizado"
+                }
+            ), 401
+        nome_imagem = f"{id_usuario}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem.save(imagem_path)
+
+    return jsonify(
+        {
+            "message": "Imagem enviada com sucesso"
+        }
+    ), 200
+
+
+@app.route('/upload/livro', methods=["POST"])
+def enviar_imagem_livro():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado,))
+    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
+    biblio = cur.fetchone()[0]
+    if not biblio:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+
+    imagem = request.files.get("imagem")
+    data = request.form.to_dict()
+    id_livro = data.get("id_livro")
+
+    print(id_livro)
+
+    # Verificações de Imagem
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Formato de imagem não autorizado"
+                }
+            ), 401
+        nome_imagem = f"{id_livro}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem.save(imagem_path)
+
+    return jsonify(
+        {
+            "message": "Imagem enviada com sucesso"
+        }
+    ), 200
+
+
 @app.route('/cancelar_reserva', methods=["DELETE"])
 def deletar_reservas():
     token = request.headers.get('Authorization')
