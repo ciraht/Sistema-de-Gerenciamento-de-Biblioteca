@@ -631,7 +631,7 @@ def adicionar_livros():
     if not biblio:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
-    data = request.get_json()
+    data = request.form.to_dict()
     titulo = data.get('titulo')
     autor = data.get('autor')
     categoria = data.get('categoria')
@@ -641,6 +641,8 @@ def adicionar_livros():
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
     tags = data.get('selectedTags', [])
+
+    imagem = request.files.get('imagem')
 
     print(tags)
 
@@ -679,7 +681,28 @@ def adicionar_livros():
 
     cur.close()
 
-    return jsonify({"message": "Livro cadastrado com sucesso"})
+    # Verificações de Imagem
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Livro cadastrado com sucesso, mas o formato de imagem é inválido, edite o livro criado"
+                }
+            ), 200
+        nome_imagem = f"{livro_id}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem.save(imagem_path)
+
+    return jsonify({"message": "Livro cadastrado com sucesso", "id_livro": livro_id})
 
 
 @app.route('/editar_livro/', methods=["PUT"])
@@ -703,7 +726,7 @@ def editar_livro():
     if not biblio:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
-    data = request.get_json()
+    data = request.form.to_dict()
     id_livro = data.get('id_livro')
 
     cur = con.cursor()
@@ -715,7 +738,6 @@ def editar_livro():
         cur.close()
         return jsonify({"message": "Livro não foi encontrado"}), 404
 
-    data = request.get_json()
     titulo = data.get('titulo')
     autor = data.get('autor')
     categoria = data.get('categoria')
@@ -723,9 +745,12 @@ def editar_livro():
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
     tags = data.get('tags', [])
+    idiomas = data.get('idiomas')
+    ano_publicado = data.get("ano_publicado")
 
+    imagem = request.files.get("imagem")
     # Verificando se tem todos os dados
-    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao]):
+    if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         cur.close()
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
@@ -739,10 +764,11 @@ def editar_livro():
 
     cur.execute(
         """UPDATE acervo SET
-         titulo = ?, autor = ?, categoria = ?, isbn = ?, qtd_disponivel = ?, descricao = ? 
+         titulo = ?, autor = ?, categoria = ?, isbn = ?, qtd_disponivel = ?, descricao = ?, 
+         idiomas = ?, ano_publicado = ?
         WHERE
          id_livro = ?""",
-        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, id_livro)
+        (titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado, id_livro)
     )
     con.commit()
 
@@ -763,6 +789,27 @@ def editar_livro():
     con.commit()
 
     cur.close()
+
+    # Verificações de Imagem
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Livro editado com sucesso, mas o formato de imagem é inválido."
+                }
+            ), 200
+        nome_imagem = f"{id_livro}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem.save(imagem_path)
 
     return jsonify({"message": "Livro atualizado com sucesso"}), 200
 
@@ -804,12 +851,25 @@ def livro_delete():
     cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
-    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_LIVRO = ?", (id_livro,))
 
     # Excluir o Livro
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
     con.commit()
     cur.close()
+
+    # Excluir a imagem de livro da aplicação caso houver
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    valido = True
+    ext_real = None
+    for ext in imagens:
+        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Livros\{str(id_livro)+ext}"):
+            valido = False
+            ext_real = ext
+    if not valido:
+        os.remove(rf"{app.config['UPLOAD_FOLDER']}\Livros\{str(id_livro)+ext_real}")
 
     return jsonify({'message': "Livro excluído com sucesso!", })
 
