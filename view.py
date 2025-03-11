@@ -673,7 +673,8 @@ def adicionar_livros():
 
     # Associando tags ao livro
     for tag in tags:
-        tag_id = tag.get('id')
+        tag_id = tag['id']
+        print(f"Tag_id:{tag_id}")
         if tag_id:
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
 
@@ -1343,7 +1344,7 @@ def get_tags():
 @app.route('/tags/<int:id>', methods=["GET"])
 def get_tag(id):
     cur = con.cursor()
-    cur.execute("SELECT id_tag, id_livro from livros_tags where id_livro = ?", (id,))
+    cur.execute("SELECT id_tag, id_livro from livro_tags where id_livro = ?", (id,))
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
     cur.close()
     return jsonify(tags), 200
