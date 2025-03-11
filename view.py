@@ -29,13 +29,16 @@ def remover_bearer(token):
 def cadastrar():
     try:
         # Recebendo informações
-        data = request.get_json()
+        data = request.form.to_dict()
+
         nome = data.get('nome')
         email = data.get('email')
         telefone = data.get('telefone')
         endereco = data.get('endereco')
         senha = data.get('senha')
-        tipo = data.get('tipo')
+        tipo = int(data.get('tipo'))
+        imagem = request.files.get('imagem')
+        print(f"Imagem:{imagem}, Nome:{imagem.filename}")
 
         email = email.lower()
 
@@ -91,30 +94,63 @@ def cadastrar():
         # Inserindo usuário na tabela usuarios conforme seu tipo
         if tipo == 1:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 1)",
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 1) RETURNING ID_USUARIO",
                 (nome, email, telefone, endereco, senha)
             )
+            id_usuario = cur.fetchone()[0]
             con.commit()
         elif tipo == 2:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 2)",
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 2) RETURNING ID_USUARIO",
                 (nome, email, telefone, endereco, senha)
             )
+            id_usuario = cur.fetchone()[0]
             con.commit()
 
         elif tipo == 3:
             cur.execute(
-                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 3)",
+                "INSERT INTO usuarios (nome, email, telefone, endereco, senha, tipo) VALUES (?, ?, ?, ?, ?, 3) RETURNING ID_USUARIO",
                 (nome, email, telefone, endereco, senha)
             )
+            id_usuario = cur.fetchone()[0]
             con.commit()
+        else:
+            return jsonify(
+                {
+                    "message": "Tipo de usuário inválido"
+                }
+            ), 400
+        con.commit()
 
+        print(id_usuario)
         cur.close()
+
+        # Verificações de Imagem
+        imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            os.makedirs(app.config['UPLOAD_FOLDER'])
+        if imagem:
+            valido = False
+            for ext in imagens:
+                if imagem.filename.endswith(ext):
+                    valido = True
+            if not valido:
+                return jsonify(
+                    {
+                        "message": "Usuário cadastrado com sucesso, mas o formato de imagem é inválido, você pode alterar editando seu perfil depois"
+                    }
+                ), 200
+            nome_imagem = f"{id_usuario}.jpeg"
+            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+            os.makedirs(pasta_destino, exist_ok=True)
+            imagem_path = os.path.join(pasta_destino, nome_imagem)
+            imagem.save(imagem_path)
+
         return jsonify(
             {
                 "message": "Usuário cadastrado com sucesso"
             }
-        ), 201
+        ), 200
 
     except Exception as e:
         return jsonify({"message": f"Erro: {str(e)}"}), 500
@@ -299,11 +335,15 @@ def usuario_put():
     except jwt.InvalidTokenError:
         return jsonify({'mensagem': 'Token inválido'}), 401
 
-    data = request.get_json()
-    id_usuario = data.get("id_usuario")
+    data = request.form.to_dict()
+    # id_usuario = data.get("id_usuario")
 
+    # if id_usuario != payload["id_usuario"]:
+    #   return jsonify({"Erro": "Tentativa de editar o perfil de outra pessoa detectada",
+    #   "Id_logado":payload["id_usuario"], "id_editado": id_usuario})
+    id_usuario = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT id_usuario, nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+    cur.execute("SELECT nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id_usuario,))
     usuario_data = cur.fetchone()
 
     if not usuario_data:
@@ -316,8 +356,10 @@ def usuario_put():
     telefone = data.get('telefone')
     endereco = data.get('endereco')
     senha = data.get('senha')
+    imagem = request.files.get('imagem')
 
     # Verificando se tem todos os dados
+    print(nome, email, telefone, endereco, senha, imagem, id_usuario)
     if not all([nome, email, telefone, endereco, senha]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
@@ -380,7 +422,29 @@ def usuario_put():
 
     cur.close()
 
-    return jsonify({"message": "Usuário atualizado com sucesso"}), 200
+    # Verificações de Imagem
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Formato de imagem inválido"
+                }
+            ), 401
+        nome_imagem = f"{id_usuario}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem.save(imagem_path)
+
+    return jsonify({"message": "Usuário atualizado com sucesso",
+                    "id_usuario": payload["id_usuario"]}), 200
 
 
 @app.route('/deletar_usuario/', methods=['DELETE'])
@@ -412,10 +476,7 @@ def deletar_usuario():
     cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id_usuario,))
     if not cur.fetchone():
         cur.close()
-        return jsonify({"error": "usuario não encontrado"}), 404
-
-    # FAZER UMA VERIFICAÇÃO DE TOKENS PARA VER SE QUEM ESTÁ FAZENDO ISSO É ADMIN
-    # (quando puder usar tokens)
+        return jsonify({"error": "Usuário não encontrado"}), 404
 
     # Excluir os registros que usam o id como chave estrangeira
     cur.execute("""
@@ -431,7 +492,22 @@ def deletar_usuario():
     con.commit()
     cur.close()
 
-    return jsonify({'message': "usuario excluído com sucesso!", })
+    # Excluir a imagem de usuário da aplicação caso houver
+    print(f"Existe o folder: {os.path.exists(app.config['UPLOAD_FOLDER'])}, Existe o arquivo: {os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{id_usuario}")}")
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    valido = True
+    ext_real = None
+    for ext in imagens:
+        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario)+ext}"):
+            valido = False
+            ext_real = ext
+    if not valido:
+        os.remove(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario)+ext_real}")
+
+    return jsonify({'message': "Usuário excluído com sucesso"})
 
 
 @app.route('/livros', methods=["GET"])
