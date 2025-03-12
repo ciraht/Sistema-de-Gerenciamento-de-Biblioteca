@@ -1,7 +1,9 @@
 import os
 import jwt
 import datetime
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, send_from_directory
+
+import config
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
@@ -29,7 +31,7 @@ def remover_bearer(token):
 def cadastrar():
     try:
         # Recebendo informações
-        data = request.form.to_dict()
+        data = request.form
 
         nome = data.get('nome')
         email = data.get('email')
@@ -141,7 +143,7 @@ def cadastrar():
                     }
                 ), 200
             nome_imagem = f"{id_usuario}.jpeg"
-            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
             os.makedirs(pasta_destino, exist_ok=True)
             imagem_path = os.path.join(pasta_destino, nome_imagem)
             imagem.save(imagem_path)
@@ -199,20 +201,23 @@ def logar():
                 return jsonify(
                     {
                         "message": "Bibliotecário entrou com sucesso",
-                        "token:": token
+                        "token": token,
+                        "id_user": id_user
                     }
                 ), 200
             elif tipo == 3:
                 return jsonify(
                     {
                         "message": "Administrador entrou com sucesso",
-                        "token:": token
+                        "token": token,
+                        "id_user": id_user
                     })
             else:
                 return jsonify(
                     {
                         "message": "Leitor entrou com sucesso",
-                        "token:": token
+                        "token": token,
+                        "id_user": id_user
                     }
                 ), 200
 
@@ -322,11 +327,12 @@ def inativar_usuario():
     return jsonify({"message": "Usuário inativado com sucesso"})
 
 
-@app.route('/editar_usuario/', methods=["PUT"])
+@app.route('/editar_usuario', methods=["PUT"])
 def usuario_put():
     token = request.headers.get('Authorization')
     if not token:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+
     token = remover_bearer(token)
     try:
         payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
@@ -335,12 +341,6 @@ def usuario_put():
     except jwt.InvalidTokenError:
         return jsonify({'mensagem': 'Token inválido'}), 401
 
-    data = request.form.to_dict()
-    # id_usuario = data.get("id_usuario")
-
-    # if id_usuario != payload["id_usuario"]:
-    #   return jsonify({"Erro": "Tentativa de editar o perfil de outra pessoa detectada",
-    #   "Id_logado":payload["id_usuario"], "id_editado": id_usuario})
     id_usuario = payload["id_usuario"]
     cur = con.cursor()
     cur.execute("SELECT nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id_usuario,))
@@ -348,9 +348,10 @@ def usuario_put():
 
     if not usuario_data:
         cur.close()
-        return jsonify({"message": "Usuário não foi encontrado"}), 404
+        return jsonify({"message": "Usuário não encontrado"}), 404
 
     # Recebendo novos dados
+    data = request.form
     nome = data.get('nome')
     email = data.get('email')
     telefone = data.get('telefone')
@@ -358,93 +359,42 @@ def usuario_put():
     senha = data.get('senha')
     imagem = request.files.get('imagem')
 
-    # Verificando se tem todos os dados
-    print(nome, email, telefone, endereco, senha, imagem, id_usuario)
     if not all([nome, email, telefone, endereco, senha]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
-    # Verificando se os dados novos já existem na DataBase
-    cur.execute("select email, telefone from usuarios where id_usuario = ?", (id_usuario, ))
-    checagem = cur.fetchone()
-    emailvelho = checagem[0]
-    telefonevelho = checagem[1]
-    emailvelho = emailvelho.lower()
-    email = email.lower()
-    if telefone != telefonevelho or email != emailvelho:
-        cur.execute("select 1 from usuarios where telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario, ))
-        if cur.fetchone():
-            cur.close()
-            return jsonify({"message": "Telefone já cadastrado"})
-    if email != emailvelho:
-        cur.execute("select 1 from usuarios where email = ? AND ID_USUARIO <> ?", (email, id_usuario, ))
-        if cur.fetchone():
-            cur.close()
-            return jsonify({"message": "Email já cadastrado"})
-
     # Verificações de senha
     if len(senha) < 8:
-        return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"})
+        return jsonify({"message": "A senha deve conter pelo menos 8 caracteres"})
 
-    tem_maiuscula = False
-    tem_minuscula = False
-    tem_numero = False
-    tem_caract_especial = False
-    caracteres_especiais = "!@#$%^&*(),-.?\":{}|<>"
-
-    # Verifica cada caractere da senha
-    for char in senha:
-        if char.isupper():
-            tem_maiuscula = True
-        elif char.islower():
-            tem_minuscula = True
-        elif char.isdigit():
-            tem_numero = True
-        elif char in caracteres_especiais:
-            tem_caract_especial = True
-
-    # Verifica se todos os critérios foram atendidos
-    if not tem_maiuscula:
+    if not any(c.isupper() for c in senha):
         return jsonify({"message": "A senha deve conter pelo menos uma letra maiúscula."})
-    if not tem_minuscula:
+    if not any(c.islower() for c in senha):
         return jsonify({"message": "A senha deve conter pelo menos uma letra minúscula."})
-    if not tem_numero:
+    if not any(c.isdigit() for c in senha):
         return jsonify({"message": "A senha deve conter pelo menos um número."})
-    if not tem_caract_especial:
+    if not any(c in "!@#$%^&*(),-.?\":{}|<>" for c in senha):
         return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
 
     senha = generate_password_hash(senha)
-    # Atualizando as informações
+
+    # Atualizando os dados no banco
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ?, senha = ? WHERE id_usuario = ?",
         (nome, email, telefone, endereco, senha, id_usuario)
     )
     con.commit()
-
     cur.close()
 
-    # Verificações de Imagem
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        os.makedirs(app.config['UPLOAD_FOLDER'])
+    # Se houver imagem, salva no servidor
     if imagem:
-        valido = False
-        for ext in imagens:
-            if imagem.filename.endswith(ext):
-                valido = True
-        if not valido:
-            return jsonify(
-                {
-                    "message": "Formato de imagem inválido"
-                }
-            ), 401
-        nome_imagem = f"{id_usuario}.jpeg"
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
         os.makedirs(pasta_destino, exist_ok=True)
-        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+
+        # Salva a imagem diretamente
         imagem.save(imagem_path)
 
-    return jsonify({"message": "Usuário atualizado com sucesso",
-                    "id_usuario": payload["id_usuario"]}), 200
+    return jsonify({"message": "Usuário atualizado com sucesso"}), 200
 
 
 @app.route('/deletar_usuario/', methods=['DELETE'])
@@ -559,57 +509,6 @@ def get_livros():
     cur.close()
     return jsonify(livros), 200
 
-
-# @app.route('/adicionar_livros', methods=["POST"])
-# def adicionar_livros():
-#     data = request.get_json()
-#     titulo = data.get('titulo')
-#     autor = data.get('autor')
-#     categoria = data.get('categoria')
-#     isbn = data.get('isbn')
-#     qtd_disponivel = data.get('qtd_disponivel')
-#     descricao = data.get('descricao')
-#     ano_publicado = data.get('ano_publicado')
-#     idiomas = data.get('idiomas')
-
-#     tags = data.get('tags')
-
-#     # Verificando se tem todos os dados
-#     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
-#         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
-
-#     cur = con.cursor()
-
-#     # Procurando por duplicados pelo ISBN
-#     cur.execute("select 1 from acervo where isbn = ?", (isbn, ))
-#     if cur.fetchone():
-#         cur.close()
-#         return jsonify({"error": "ISBN já cadastrada"})
-
-#     # Adicionando os dados na Database
-#     cur.execute(
-#         "INSERT INTO ACERVO (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-#         (titulo, autor, categoria, isbn, qtd_disponivel, descricao, ano_publicado, idiomas)
-#     )
-#     con.commit()
-
-#     pegar_id = cur.execute("SELECT ID_LIVRO FROM ACERVO WHERE ACERVO.ISBN = ?", (isbn, ))
-#     livro_id = pegar_id.fetchone()[0]
-
-#     # Associando tags ao livro
-#     if tags:
-#         for tag in tags:
-#             cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag, ))
-#             tag_id = cur.fetchone()
-#             if tag_id:
-#                 cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id[0]))
-
-#     con.commit()
-
-#     cur.close()
-
-#     return jsonify({"message": "Livro cadastrado com sucesso"})
-
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
     token = request.headers.get('Authorization')
@@ -631,7 +530,7 @@ def adicionar_livros():
     if not biblio:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
-    data = request.form.to_dict()
+    data = request.form
     titulo = data.get('titulo')
     autor = data.get('autor')
     categoria = data.get('categoria')
@@ -698,7 +597,7 @@ def adicionar_livros():
                 }
             ), 200
         nome_imagem = f"{livro_id}.jpeg"
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "livros")
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, nome_imagem)
         imagem.save(imagem_path)
@@ -727,7 +626,7 @@ def editar_livro():
     if not biblio:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
-    data = request.form.to_dict()
+    data = request.form
     id_livro = data.get('id_livro')
 
     cur = con.cursor()
@@ -807,7 +706,7 @@ def editar_livro():
                 }
             ), 200
         nome_imagem = f"{id_livro}.jpeg"
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "livros")
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, nome_imagem)
         imagem.save(imagem_path)
@@ -913,7 +812,7 @@ def emprestar_livros():
             (livro[0],)
         )
         qtd_maxima = cur.fetchone()[0]
-        # Livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
+        # livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
         cur.execute(
             """SELECT count(ID_ITEM) FROM ITENS_EMPRESTIMO i WHERE
              i.id_livro = ? AND i.ID_EMPRESTIMO IN 
@@ -936,7 +835,7 @@ def emprestar_livros():
             (livro[0], id_leitor)
         )
         livros_reservados = cur.fetchone()[0]
-        print(f"\nLivros não emprestados: {livros_nao_emprestados}, Livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
+        print(f"\nlivros não emprestados: {livros_nao_emprestados}, livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
         if livros_reservados >= livros_nao_emprestados:
             cur.close()
             return jsonify({
@@ -1108,7 +1007,7 @@ def enviar_imagem_usuario():
                 }
             ), 401
         nome_imagem = f"{id_usuario}.jpeg"
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Usuarios")
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, nome_imagem)
         imagem.save(imagem_path)
@@ -1163,7 +1062,7 @@ def enviar_imagem_livro():
                 }
             ), 401
         nome_imagem = f"{id_livro}.jpeg"
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "Livros")
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "livros")
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, nome_imagem)
         imagem.save(imagem_path)
@@ -1348,3 +1247,176 @@ def get_tag(id):
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
     cur.close()
     return jsonify(tags), 200
+
+@app.route("/livros/<int:id>", methods=["GET"])
+def get_livros_id(id):
+    cur = con.cursor()
+    cur.execute("""
+        SELECT 
+            a.id_livro,
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO,
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        WHERE a.id_livro = ?
+    """, (id,))
+
+    livro = cur.fetchone()
+    cur.close()
+
+    if not livro:  # Se o livro não existir, retorna erro 404
+        return jsonify({"erro": "Livro não encontrado"}), 404
+
+    return jsonify({
+        "id": livro[0],
+        "titulo": livro[1],
+        "autor": livro[2],
+        "categoria": livro[3],
+        "isbn": livro[4],
+        "qtd_disponivel": livro[5],
+        "descricao": livro[6],
+        "idiomas": livro[7],
+        "ano_publicado": livro[8]
+    })
+
+@app.route('/relatorio/livros', methods=['GET'])
+def gerar_relatorio_livros():
+    cursor = con.cursor()
+    cursor.execute("""
+        SELECT 
+            a.id_livro,
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO,
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        ORDER BY a.id_livro;
+    """)
+    livros = cursor.fetchall()
+    cursor.close()
+
+    contador_livros = len(livros)  # Definir o contador de livros antes do loop
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    for livro in livros:
+        pdf.cell(200, 10,
+                 f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}",
+                 ln=True)
+
+    pdf.ln(10)  # Espaço antes do contador
+    pdf.set_font("Arial", style='B', size=12)
+    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+
+    pdf_path = "relatorio_livros.pdf"
+    pdf.output(pdf_path)
+
+    try:
+        return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'mensagem': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+
+@app.route('/relatorio/usuarios', methods=['GET'])
+def gerar_relatorio_usuarios():
+    cursor = con.cursor()
+    cursor.execute("""
+        SELECT
+            id_usuario,
+            nome,
+            email,
+            telefone,
+            endereco
+        FROM USUARIOS
+        ORDER BY id_usuario;
+    """)
+    usuarios = cursor.fetchall()
+    cursor.close()
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de usuarios", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    for usuario in usuarios:
+        pdf.cell(200, 10, f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}", ln=True)
+
+    contador_usuarios = len(usuarios)
+    pdf.ln(10)  # Espaço antes do contador
+    pdf.set_font("Arial", style='B', size=12)
+    pdf.cell(200, 10, f"Total de usuarios cadastrados: {contador_usuarios}", ln=True, align='C')
+
+    pdf_path = "relatorio_usuarios.pdf"
+    pdf.output(pdf_path)
+    try:
+        return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'mensagem': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+@app.route("/user/<int:id>", methods=["GET"])
+def get_user_id(id):
+    print(f"Recebido ID: {id}")  # Verifique se o ID é recebido corretamente
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT
+            id_usuario,
+            nome, 
+            email, 
+            telefone, 
+            endereco, 
+            senha, 
+            tipo,
+            ativo
+        FROM usuarios
+        WHERE id_usuario = ?
+    """, (id,))
+
+    usuario = cur.fetchone()
+    cur.close()
+
+    if not usuario:  # Se o usuário não existir, retorna erro 404
+        return jsonify({"erro": "Usuário não encontrado"}), 404
+
+    return jsonify({
+        "id": usuario[0],
+        "nome": usuario[1],
+        "email": usuario[2],
+        "telefone": usuario[3],
+        "endereco": usuario[4],
+        "senha": usuario[5],
+        "imagem": f"{usuario[0]}.jpeg"
+    })
+
+
+@app.route('/uploads/<tipo>/<filename>')
+def serve_file(tipo, filename):
+    pasta_permitida = ["usuarios", "livros"]  # Apenas pastas permitidas
+    if tipo not in pasta_permitida:
+        return {"erro": "Acesso negado"}, 403  # Evita acesso a outras pastas
+
+    caminho_pasta = os.path.join(config.UPLOAD_FOLDER, tipo)
+
+    return send_from_directory(caminho_pasta, filename)
