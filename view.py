@@ -343,57 +343,61 @@ def usuario_put():
 
     id_usuario = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT nome, email, telefone, endereco FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+    cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
     usuario_data = cur.fetchone()
 
     if not usuario_data:
         cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
-    # Recebendo novos dados
     data = request.form
     nome = data.get('nome')
     email = data.get('email')
     telefone = data.get('telefone')
     endereco = data.get('endereco')
-    senha = data.get('senha')
+    senha_nova = data.get('senha')
+    senha_confirm = data.get('senhaConfirm')
+    senha_antiga = data.get('senhaAntiga')
     imagem = request.files.get('imagem')
 
-    if not all([nome, email, telefone, endereco, senha]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+    if not all([nome, email, telefone, endereco]):
+        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
 
-    # Verificações de senha
-    if len(senha) < 8:
-        return jsonify({"message": "A senha deve conter pelo menos 8 caracteres"})
+    if senha_nova or senha_confirm:
+        if not senha_antiga:
+            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
 
-    if not any(c.isupper() for c in senha):
-        return jsonify({"message": "A senha deve conter pelo menos uma letra maiúscula."})
-    if not any(c.islower() for c in senha):
-        return jsonify({"message": "A senha deve conter pelo menos uma letra minúscula."})
-    if not any(c.isdigit() for c in senha):
-        return jsonify({"message": "A senha deve conter pelo menos um número."})
-    if not any(c in "!@#$%^&*(),-.?\":{}|<>" for c in senha):
-        return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
+        cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+        senha_armazenada = cur.fetchone()[0]
 
-    senha = generate_password_hash(senha)
+        if not check_password_hash(senha_armazenada, senha_antiga):
+            return jsonify({"message": "Senha antiga incorreta."}), 400
 
-    # Atualizando os dados no banco
+        if senha_nova != senha_confirm:
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+
+        if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(c in "!@#$%^&*(),-.?\":{}|<>" for c in senha_nova):
+            return jsonify({"message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
+
+        senha_nova = generate_password_hash(senha_nova)
+        cur.execute(
+            "UPDATE usuarios SET senha = ? WHERE id_usuario = ?",
+            (senha_nova, id_usuario)
+        )
+
     cur.execute(
-        "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ?, senha = ? WHERE id_usuario = ?",
-        (nome, email, telefone, endereco, senha, id_usuario)
+        "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
+        (nome, email, telefone, endereco, id_usuario)
     )
     con.commit()
-    cur.close()
 
-    # Se houver imagem, salva no servidor
     if imagem:
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
-
-        # Salva a imagem diretamente
         imagem.save(imagem_path)
 
+    cur.close()
     return jsonify({"message": "Usuário atualizado com sucesso"}), 200
 
 
@@ -502,6 +506,7 @@ def get_livros():
             'idiomas': r[7],
             'ano_publicacao': r[8],
             'selectedTags': selected_tags,
+            'imagem': f"{r[0]}.jpeg"
         }
 
         livros.append(livro)
@@ -539,7 +544,7 @@ def adicionar_livros():
     descricao = data.get('descricao')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
-    tags = data.get('selectedTags', [])
+    tags = data.get('selectedTags', []).split(",")
 
     imagem = request.files.get('imagem')
 
@@ -572,7 +577,7 @@ def adicionar_livros():
 
     # Associando tags ao livro
     for tag in tags:
-        tag_id = tag['id']
+        tag_id = tag
         print(f"Tag_id:{tag_id}")
         if tag_id:
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
@@ -602,10 +607,10 @@ def adicionar_livros():
         imagem_path = os.path.join(pasta_destino, nome_imagem)
         imagem.save(imagem_path)
 
-    return jsonify({"message": "Livro cadastrado com sucesso", "id_livro": livro_id})
+    return jsonify({"message": "Livro cadastrado com sucesso", "id_livro": livro_id}),202
 
 
-@app.route('/editar_livro/', methods=["PUT"])
+@app.route('/editar_livro/<int:id>', methods=["PUT"])
 def editar_livro():
     token = request.headers.get('Authorization')
     if not token:
@@ -627,7 +632,7 @@ def editar_livro():
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
     data = request.form
-    id_livro = data.get('id_livro')
+    id_livro = id
 
     cur = con.cursor()
     cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
@@ -1281,7 +1286,8 @@ def get_livros_id(id):
         "qtd_disponivel": livro[5],
         "descricao": livro[6],
         "idiomas": livro[7],
-        "ano_publicado": livro[8]
+        "ano_publicado": livro[8],
+        "imagem": f"{livro[0]}.jpeg"
     })
 
 @app.route('/relatorio/livros', methods=['GET'])
@@ -1411,12 +1417,37 @@ def get_user_id(id):
     })
 
 
+
+
+@app.route('/token', methods=["POST"])
+def tokenIsActive():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'Token de autenticação necessário'}), 401
+
+    token = remover_bearer(token)
+
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Token inválido'}), 401
+
+    return jsonify({'message': 'Token válido', 'id_usuario': payload["id_usuario"]}), 200
+
+
 @app.route('/uploads/<tipo>/<filename>')
 def serve_file(tipo, filename):
     pasta_permitida = ["usuarios", "livros"]  # Apenas pastas permitidas
     if tipo not in pasta_permitida:
-        return {"erro": "Acesso negado"}, 403  # Evita acesso a outras pastas
+        return {"erro": "Acesso neg ado"}, 403  # Evita acesso a outras pastas
 
     caminho_pasta = os.path.join(config.UPLOAD_FOLDER, tipo)
+    caminho_arquivo = os.path.join(caminho_pasta, filename)
+
+    # Verifica se o arquivo existe antes de servir
+    if not os.path.isfile(caminho_arquivo):
+        return {"erro": "Arquivo não encontrado"}, 404
 
     return send_from_directory(caminho_pasta, filename)
