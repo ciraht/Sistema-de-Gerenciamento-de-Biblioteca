@@ -1,8 +1,7 @@
 import os
 import jwt
 import datetime
-from flask import Flask, jsonify, request, send_file, send_from_directory
-
+from flask import Flask, jsonify, request, send_file, send_from_directory, json
 import config
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
@@ -401,7 +400,7 @@ def usuario_put():
     return jsonify({"message": "Usuário atualizado com sucesso"}), 200
 
 
-@app.route('/deletar_usuario/', methods=['DELETE'])
+@app.route('/deletar_usuario', methods=['DELETE'])
 def deletar_usuario():
     token = request.headers.get('Authorization')
     if not token:
@@ -610,8 +609,8 @@ def adicionar_livros():
     return jsonify({"message": "Livro cadastrado com sucesso", "id_livro": livro_id}),202
 
 
-@app.route('/editar_livro/<int:id>', methods=["PUT"])
-def editar_livro():
+@app.route('/editar_livro/<int:id_livro>', methods=["PUT"])
+def editar_livro(id_livro):
     token = request.headers.get('Authorization')
     if not token:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
@@ -632,7 +631,6 @@ def editar_livro():
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
     data = request.form
-    id_livro = id
 
     cur = con.cursor()
     cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
@@ -649,9 +647,12 @@ def editar_livro():
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
-    tags = data.get('tags', [])
+    tags = data.get('selectedTags', []).split(',')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
+
+    print(data)
+    print(tags)
 
     imagem = request.files.get("imagem")
     # Verificando se tem todos os dados
@@ -682,10 +683,9 @@ def editar_livro():
 
     # Associando tags ao livro
     for tag in tags:
-        cur.execute("SELECT id_tag FROM tags WHERE nome_tag = ?", (tag,))
-        tag_id = cur.fetchone()
+        tag_id = tag
         if tag_id:
-            insert_data.append((id_livro, tag_id[0]))
+            insert_data.append((id_livro, tag_id))
 
     # Inserindo as associações
     if insert_data:
@@ -719,11 +719,12 @@ def editar_livro():
     return jsonify({"message": "Livro atualizado com sucesso"}), 200
 
 
-@app.route('/excluir_livro/', methods=["DELETE"])
+@app.route('/excluir_livro', methods=["DELETE"])
 def livro_delete():
     token = request.headers.get('Authorization')
     if not token:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+
     token = remover_bearer(token)
     try:
         payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
@@ -734,16 +735,20 @@ def livro_delete():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado, ))
-    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
-    biblio = cur.fetchone()[0]
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
+    biblio = cur.fetchone()
+
     if not biblio:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
+    # Obter JSON da requisição
     data = request.get_json()
-    id_livro = data.get('id_livro')
 
-    cur = con.cursor()
+    # Garantir que o ID foi enviado
+    if not data or 'id_livro' not in data:
+        return jsonify({"error": "ID do livro não fornecido"}), 400
+
+    id_livro = data['id_livro']
 
     # Verificar se o livro existe
     cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id_livro,))
@@ -751,32 +756,29 @@ def livro_delete():
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
 
-    # ANTES: excluir todos os registros das outras tabelas relacionados ao livro
+    # Excluir registros relacionados ao livro
     cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
-
-    # Excluir o Livro
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
+
     con.commit()
     cur.close()
 
-    # Excluir a imagem de livro da aplicação caso houver
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        os.makedirs(app.config['UPLOAD_FOLDER'])
+    # Remover imagem do livro
+    upload_folder = app.config['UPLOAD_FOLDER']
+    if not os.path.exists(upload_folder):
+        os.makedirs(upload_folder)
 
     imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
-    valido = True
-    ext_real = None
     for ext in imagens:
-        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Livros\{str(id_livro)+ext}"):
-            valido = False
-            ext_real = ext
-    if not valido:
-        os.remove(rf"{app.config['UPLOAD_FOLDER']}\Livros\{str(id_livro)+ext_real}")
+        caminho_imagem = os.path.join(upload_folder, "Livros", f"{id_livro}{ext}")
+        if os.path.exists(caminho_imagem):
+            os.remove(caminho_imagem)
+            break
 
-    return jsonify({'message': "Livro excluído com sucesso!", })
+    return jsonify({'message': "Livro excluído com sucesso!"})
 
 
 @app.route('/emprestimo_livros', methods=["POST"])
@@ -1272,6 +1274,18 @@ def get_livros_id(id):
     """, (id,))
 
     livro = cur.fetchone()
+
+    cur.execute("""
+            SELECT t.id_tag, t.nome_tag
+            FROM LIVRO_TAGS lt
+            LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+            WHERE lt.ID_LIVRO = ?
+        """, (id,))
+
+    tags = cur.fetchall()
+
+    selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
     cur.close()
 
     if not livro:  # Se o livro não existir, retorna erro 404
@@ -1287,7 +1301,8 @@ def get_livros_id(id):
         "descricao": livro[6],
         "idiomas": livro[7],
         "ano_publicado": livro[8],
-        "imagem": f"{livro[0]}.jpeg"
+        "imagem": f"{livro[0]}.jpeg",
+        "selectedTags": selected_tags
     })
 
 @app.route('/relatorio/livros', methods=['GET'])
