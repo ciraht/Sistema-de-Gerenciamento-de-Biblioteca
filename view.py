@@ -1524,3 +1524,39 @@ def serve_file(tipo, filename):
         return {"error": "Arquivo não encontrado"}, 404
 
     return send_from_directory(caminho_pasta, filename)
+
+
+@app.route('/trocar_tipo/<int:id>', methods=["PUT"])
+def trocar_tipo(id):
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3",
+                (id_logado,))
+    biblio = cur.fetchone()
+    if not biblio:
+        return jsonify({'error': 'Nível Administrador requerido'}), 401
+
+    cur.execute("select tipo from usuarios where id_usuario = ?", (id,))
+    tipo = cur.fetchone()[0]
+
+    if tipo == 1:
+        cur.execute("UPDATE USUARIOS SET tipo = 2 WHERE ID_USUARIO = ?", (id,))
+    elif tipo == 2:
+        cur.execute("UPDATE USUARIOS SET tipo = 1 WHERE ID_USUARIO = ?", (id,))
+    elif tipo == 3:
+        return jsonify({"error": "Um administrador não tem permissão para retirar um cargo de administrador"}), 401
+
+    con.commit()
+
+    return jsonify({"message": "Usuário atualizado com sucesso"}), 202
