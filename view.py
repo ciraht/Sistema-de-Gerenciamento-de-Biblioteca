@@ -528,11 +528,10 @@ def adicionar_livros():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado, ))
-    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
-    biblio = cur.fetchone()[0]
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado, ))
+    biblio = cur.fetchone()
     if not biblio:
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+        return jsonify({'error': 'Nível Bibliotecário requerido'}), 401
 
     data = request.form
     titulo = data.get('titulo')
@@ -624,11 +623,11 @@ def editar_livro(id_livro):
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado, ))
-    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
-    biblio = cur.fetchone()[0]
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)",
+                (id_logado,))
+    biblio = cur.fetchone()
     if not biblio:
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+        return jsonify({'error': 'Nível Bibliotecário requerido'}), 401
 
     data = request.form
 
@@ -1041,7 +1040,7 @@ def enviar_imagem_livro():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado,))
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
     biblio = cur.fetchone()[0]
     if not biblio:
@@ -1133,7 +1132,7 @@ def pesquisar_usuarios():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 2 OR TIPO = 3", (id_logado,))
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
     biblio = cur.fetchone()[0]
     if not biblio:
@@ -1289,7 +1288,7 @@ def get_livros_id(id):
     cur.close()
 
     if not livro:  # Se o livro não existir, retorna erro 404
-        return jsonify({"erro": "Livro não encontrado"}), 404
+        return jsonify({"error": "Livro não encontrado"}), 404
 
     return jsonify({
         "id": livro[0],
@@ -1352,7 +1351,7 @@ def gerar_relatorio_livros():
     try:
         return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
     except Exception as e:
-        return jsonify({'mensagem': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 
 @app.route('/relatorio/usuarios', methods=['GET'])
@@ -1394,7 +1393,7 @@ def gerar_relatorio_usuarios():
     try:
         return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
     except Exception as e:
-        return jsonify({'mensagem': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 @app.route("/user/<int:id>", methods=["GET"])
 def get_user_id(id):
@@ -1419,7 +1418,7 @@ def get_user_id(id):
     cur.close()
 
     if not usuario:  # Se o usuário não existir, retorna erro 404
-        return jsonify({"erro": "Usuário não encontrado"}), 404
+        return jsonify({"error": "Usuário não encontrado"}), 404
 
     return jsonify({
         "id": usuario[0],
@@ -1456,13 +1455,13 @@ def tokenIsActive():
 def serve_file(tipo, filename):
     pasta_permitida = ["usuarios", "livros"]  # Apenas pastas permitidas
     if tipo not in pasta_permitida:
-        return {"erro": "Acesso neg ado"}, 403  # Evita acesso a outras pastas
+        return {"error": "Acesso negado"}, 403  # Evita acesso a outras pastas
 
     caminho_pasta = os.path.join(config.UPLOAD_FOLDER, tipo)
     caminho_arquivo = os.path.join(caminho_pasta, filename)
 
     # Verifica se o arquivo existe antes de servir
     if not os.path.isfile(caminho_arquivo):
-        return {"erro": "Arquivo não encontrado"}, 404
+        return {"error": "Arquivo não encontrado"}, 404
 
     return send_from_directory(caminho_pasta, filename)
