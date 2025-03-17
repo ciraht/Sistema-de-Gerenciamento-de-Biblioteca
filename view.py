@@ -13,7 +13,7 @@ senha_secreta = app.config['SECRET_KEY']
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
-        'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=30)
+        'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=45)
     }
     token = jwt.encode(payload, senha_secreta, algorithm='HS256')
     return token
@@ -386,7 +386,11 @@ def usuario_put():
             "UPDATE usuarios SET senha = ? WHERE id_usuario = ?",
             (senha_nova, id_usuario)
         )
-
+    cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
+    if cur.fetchone():
+        return jsonify({
+            "error": "Este email pertence a outra pessoa"
+        }), 400
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
         (nome, email, telefone, endereco, id_usuario)
@@ -547,7 +551,7 @@ def adicionar_livros():
     descricao = data.get('descricao')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
-    tags = data.get('selectedTags', []).split(", ")
+    tags = data.get('selectedTags').split(", ")
 
     imagem = request.files.get('imagem')
 
@@ -1331,7 +1335,11 @@ def get_livros_id(id):
     valor_total = cur.fetchone()[0]
     cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
     qtd = cur.fetchone()[0]
-    avaliacoes = round((valor_total / qtd), 2)
+    print(f'\nvalor_total: {valor_total}, qtd: {qtd}\n')
+    if qtd != 0:
+        avaliacoes = round((valor_total / qtd), 2)
+    else:
+        avaliacoes = 0.00
 
     cur.close()
 
