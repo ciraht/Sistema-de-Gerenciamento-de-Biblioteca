@@ -201,7 +201,8 @@ def logar():
                     {
                         "message": "Bibliotecário entrou com sucesso",
                         "token": token,
-                        "id_user": id_user
+                        "id_user": id_user,
+                        "tipo": tipo
                     }
                 ), 200
             elif tipo == 3:
@@ -209,14 +210,16 @@ def logar():
                     {
                         "message": "Administrador entrou com sucesso",
                         "token": token,
-                        "id_user": id_user
+                        "id_user": id_user,
+                        "tipo": tipo
                     })
             else:
                 return jsonify(
                     {
                         "message": "Leitor entrou com sucesso",
                         "token": token,
-                        "id_user": id_user
+                        "id_user": id_user,
+                        "tipo": tipo
                     }
                 ), 200
 
@@ -551,7 +554,7 @@ def adicionar_livros():
     descricao = data.get('descricao')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
-    tags = data.get('selectedTags').split(", ")
+    tags = data.get('selectedTags', []).split(",")
 
     imagem = request.files.get('imagem')
 
