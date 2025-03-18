@@ -1137,6 +1137,7 @@ def pesquisar_usuarios():
     token = request.headers.get('Authorization')
     if not token:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+
     token = remover_bearer(token)
     try:
         payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
@@ -1147,10 +1148,11 @@ def pesquisar_usuarios():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado, ))
-    # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
-    biblio = cur.fetchone()[0]
-    if not biblio:
+
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
+    resultado = cur.fetchone()
+
+    if not resultado or resultado[0] is None:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
     data = request.get_json()
@@ -1158,11 +1160,8 @@ def pesquisar_usuarios():
     filtros = data.get("filtros", [])
 
     if not pesquisa:
-        return jsonify({"message": "Nada pesquisado"})
+        return jsonify({"mensagem": "Nada pesquisado"}), 400
 
-    cur = con.cursor()
-
-    # Pesquisando texto
     sql = """
         SELECT DISTINCT u.nome, u.email, u.telefone, 
                         u.endereco, u.senha, u.tipo
@@ -1172,34 +1171,26 @@ def pesquisar_usuarios():
         LEFT JOIN MULTAS m ON u.ID_USUARIO = m.ID_USUARIO
         WHERE u.NOME CONTAINING ?
     """
-
     params = [pesquisa]
 
     if "multado" in filtros:
         sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM MULTAS)"
-        params.append(pesquisa)
     if "reservas_validas" in filtros:
-        sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS r WHERE r.DATA_VALIDADE <= CURRENT_DATE)"
-        params.append(pesquisa)
-    if "categoria" in filtros:
-        sql += " OR a.categoria CONTAINING ?"
-        params.append(pesquisa)
-    if "isbn" in filtros:
-        sql += " OR a.isbn = ?"
-        params.append(pesquisa)
+        sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS r WHERE r.DATA_VALIDADE >= CURRENT_DATE)"
 
-    sql += "\norder by a.titulo"
+    sql += "\nORDER BY u.nome"
     cur.execute(sql, params)
     resultados = cur.fetchall()
+
     if not resultados:
         cur.close()
-        return jsonify({"message": "Nenhum resultado encontrado"}), 404
+        return jsonify({"mensagem": "Nenhum resultado encontrado"}), 404
 
     return jsonify({
-        "message": "Pesquisa realizada com sucesso",
-        "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
-                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6]} for r in resultados]
-    }), 202
+        "mensagem": "Pesquisa realizada com sucesso",
+        "resultados": [{"nome": r[0], "email": r[1], "telefone": r[2], "endereco": r[3], "senha": r[4], "tipo": r[5]}
+                       for r in resultados]
+    }), 200
 
 
 @app.route('/pesquisa', methods=["GET"])
@@ -1493,6 +1484,45 @@ def get_user_id(id):
         "senha": usuario[5],
         "imagem": f"{usuario[0]}.jpeg"
     })
+
+@app.route('/usuarios', methods=["get"])
+def usuarios():
+    usuarios = """
+        SELECT
+            id_usuario, 
+            nome, 
+            email, 
+            telefone, 
+            endereco, 
+            senha, 
+            tipo, 
+            ativo
+        FROM usuarios
+        order by nome;
+        """
+    cur = con.cursor()
+    cur.execute(usuarios)
+    catchUsuarios = cur.fetchall()
+    listaUsuarios = []
+
+    for r in catchUsuarios:
+        users = {
+            'id_usuario': r[0],
+            'nome': r[1],
+            'email': r[2],
+            'telefone': r[3],
+            'endereco': r[4],
+            'tipo':r[6],
+            'ativo':r[7],
+            'imagem': f"{r[0]}.jpeg"
+        }
+
+        listaUsuarios.append(users)
+
+    return jsonify(listaUsuarios), 200
+
+
+
 
 
 @app.route('/token', methods=["POST"])
