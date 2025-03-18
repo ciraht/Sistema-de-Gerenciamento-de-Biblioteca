@@ -37,19 +37,21 @@ def cadastrar():
         telefone = data.get('telefone')
         endereco = data.get('endereco')
         senha = data.get('senha')
+        confirmSenha = data.get('confirmSenha')
         tipo = int(data.get('tipo'))
         imagem = request.files.get('imagem')
-        print(f"Imagem:{imagem}, Nome:{imagem.filename}")
 
         email = email.lower()
 
-        print([nome, email, telefone, endereco, senha, tipo])
         # Verificando se tem todos os dados
-        if not all([nome, email, telefone, endereco, senha, tipo]):
+        if not all([nome, email, senha, tipo, confirmSenha]):
             return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
+        if senha != confirmSenha:
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+
         if len(senha) < 8:
-            return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"})
+            return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"}),401
 
         tem_maiuscula = False
         tem_minuscula = False
@@ -179,18 +181,18 @@ def logar():
         senha_hash = resultado[0]
         id_user = resultado[1]
         cur = con.cursor()
+        ativo = cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
+        ativo = ativo.fetchone()[0]
+        if not ativo:
+            cur.close()
+            return jsonify(
+                {
+                    "message": "Este usuário está inativado",
+                    "id_user": id_user
+                }
+            ), 400
+
         if check_password_hash(senha_hash, senha):
-            ativo = cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
-            ativo = ativo.fetchone()[0]
-            print(ativo)
-            if not ativo:
-                cur.close()
-                return jsonify(
-                    {
-                        "message": "Este usuário está inativado",
-                        "id_user": id_user
-                    }
-                )
 
             # Pegar o tipo do usuário para levar à página certa
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
@@ -239,7 +241,7 @@ def logar():
 
                     print(f"Segundo: {global_contagem_erros}")
 
-                    if global_contagem_erros[id_user_str] == 3:
+                    if global_contagem_erros[id_user_str] >= 3:
                         cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user, ))
                         con.commit()
                         cur.close()
@@ -392,8 +394,15 @@ def usuario_put():
     cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
     if cur.fetchone():
         return jsonify({
-            "error": "Este email pertence a outra pessoa"
+            "message": "Este email pertence a outra pessoa"
         }), 400
+
+    cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
+    if cur.fetchone():
+        return jsonify({
+            "message": "Este telefone pertence a outra pessoa"
+        }), 400
+
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
         (nome, email, telefone, endereco, id_usuario)
@@ -571,6 +580,12 @@ def adicionar_livros():
         cur.close()
         return jsonify({"error": "ISBN já cadastrada"}), 404
 
+    if int(qtd_disponivel) < 1:
+        cur.close()
+        return jsonify({"error": "Quantidade disponível precisa ser maior que 1"}), 401
+    if int(ano_publicado) > datetime.date.today().year:
+        return jsonify({"error": "Ano publicado deve ser condizente com a data atual"}), 401
+
     # Adicionando os dados na Database
     cur.execute(
         """INSERT INTO 
@@ -660,7 +675,7 @@ def editar_livro(id_livro):
     isbn = data.get('isbn')
     qtd_disponivel = data.get('qtd_disponivel')
     descricao = data.get('descricao')
-    tags = data.get('selectedTags', []).split(', ')
+    tags = data.get('selectedTags', []).split(',')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
 
@@ -680,6 +695,8 @@ def editar_livro(id_livro):
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "ISBN já cadastrado"})
+    if int(ano_publicado) > datetime.date.today().year:
+        return jsonify({"message": "Ano publicado deve ser condizente com a data atual"}), 401
 
     cur.execute(
         """UPDATE acervo SET
@@ -697,12 +714,9 @@ def editar_livro(id_livro):
     # Associando tags ao livro
     for tag in tags:
         tag_id = tag
+        print(f"Tag_id:{tag_id}")
         if tag_id:
-            insert_data.append((id_livro, tag_id))
-
-    # Inserindo as associações
-    if insert_data:
-        cur.executemany("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", insert_data)
+            cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (id_livro, tag_id))
 
     con.commit()
 
@@ -1593,3 +1607,25 @@ def trocar_tipo(id):
     con.commit()
 
     return jsonify({"message": "Usuário atualizado com sucesso"}), 202
+
+
+@app.route("/tem_permissao", methods=["get"])
+def tem_permissao():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
+    bibli = cur.fetchone()[0]
+    if not bibli:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+    return jsonify({"message": "deu certo"}), 200
