@@ -25,6 +25,7 @@ def remover_bearer(token):
     else:
         return token
 
+
 def verificar_user(tipo, trazer_pl):
     token = request.headers.get('Authorization')
     if not token:
@@ -122,13 +123,13 @@ def cadastrar():
 
         # Verifica se todos os critérios foram atendidos
         if not tem_maiuscula:
-            return jsonify({"message": "A senha deve conter pelo menos uma letra maiúscula."})
+            return jsonify({"message": "A senha deve conter pelo menos uma letra maiúscula."}), 401
         if not tem_minuscula:
-            return jsonify({"message": "A senha deve conter pelo menos uma letra minúscula."})
+            return jsonify({"message": "A senha deve conter pelo menos uma letra minúscula."}), 401
         if not tem_numero:
-            return jsonify({"message": "A senha deve conter pelo menos um número."})
+            return jsonify({"message": "A senha deve conter pelo menos um número."}), 401
         if not tem_caract_especial:
-            return jsonify({"message": "A senha deve conter pelo menos um caractere especial."})
+            return jsonify({"message": "A senha deve conter pelo menos um caractere especial."}), 401
 
         # Abrindo o Cursor
         cur = con.cursor()
@@ -399,6 +400,9 @@ def usuario_put():
         if not senha_antiga:
             return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
 
+        if senha_nova == senha_antiga:
+            return jsonify({"message": "A senha nova não pode ser igual a senha atual"})
+
         cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario, ))
         senha_armazenada = cur.fetchone()[0]
 
@@ -613,7 +617,7 @@ def adicionar_livros():
     cur.close()
 
     # Verificações de Imagem
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [".png", ".jpg", ".webp", ".jpeg"]
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
@@ -1538,6 +1542,21 @@ def trocar_tipo(id):
 
 @app.route("/tem_permissao", methods=["get"])
 def tem_permissao():
-    verificacao = informar_verificacao(2)
-    if verificacao:
-        return verificacao
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1, tipo FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
+    bibli = cur.fetchone()[0]
+    if not bibli:
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+    return jsonify({"message": "deu certo"}), 200
