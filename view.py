@@ -1151,11 +1151,13 @@ def pesquisar_usuarios():
     }), 200
 
 
-@app.route('/pesquisa', methods=["GET"])
+@app.route('/pesquisa', methods=["POST"])
 def pesquisar():
     data = request.get_json()
     pesquisa = data.get("pesquisa")
     filtros = data.get("filtros", [])
+
+    print(filtros)
 
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
@@ -1177,7 +1179,7 @@ def pesquisar():
     if "autor" in filtros:
         sql += " OR a.autor CONTAINING ?"
         params.append(pesquisa)
-    if "tag" in filtros:
+    if "tags" in filtros:
         sql += " OR t.nome_tag CONTAINING ?"
         params.append(pesquisa)
     if "categoria" in filtros:
@@ -1197,7 +1199,7 @@ def pesquisar():
     return jsonify({
         "message": "Pesquisa realizada com sucesso",
         "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
-                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6]} for r in resultados]
+                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6], "imagem": f"{r[0]}.jpeg"} for r in resultados]
     }), 202
 
 
@@ -1440,6 +1442,8 @@ def get_user_id(id):
         "telefone": usuario[3],
         "endereco": usuario[4],
         "senha": usuario[5],
+        "tipo": usuario[6],
+        "ativo": usuario[7],
         "imagem": f"{usuario[0]}.jpeg"
     })
 
@@ -1525,19 +1529,19 @@ def trocar_tipo(id):
 
     cur = con.cursor()
 
-    cur.execute("select tipo from usuarios where id_usuario = ?", (id,))
-    tipo = cur.fetchone()[0]
+    data = request.get_json()
 
-    if tipo == 1:
-        cur.execute("UPDATE USUARIOS SET tipo = 2 WHERE ID_USUARIO = ?", (id,))
-    elif tipo == 2:
+    if data == 1:
         cur.execute("UPDATE USUARIOS SET tipo = 1 WHERE ID_USUARIO = ?", (id,))
-    elif tipo == 3:
-        return jsonify({"error": "Um administrador não tem permissão para retirar um cargo de administrador"}), 401
+    elif data == 2:
+        cur.execute("UPDATE USUARIOS SET tipo = 2 WHERE ID_USUARIO = ?", (id,))
+    elif data == 3:
+        cur.execute("UPDATE USUARIOS SET tipo = 3 WHERE ID_USUARIO = ?", (id,))
+
 
     con.commit()
 
-    return jsonify({"message": "Usuário atualizado com sucesso"}), 202
+    return jsonify({"message": "Usuário atualizado com sucesso", "tipo": data}), 202
 
 
 @app.route("/tem_permissao", methods=["get"])
@@ -1555,8 +1559,182 @@ def tem_permissao():
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    cur.execute("SELECT 1, tipo FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
-    bibli = cur.fetchone()[0]
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
+    bibli = cur.fetchone()
     if not bibli:
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+    cur.close()
     return jsonify({"message": "deu certo"}), 200
+
+
+@app.route("/puxar_historico", methods=["GET"])
+def puxar_historico():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id_logado = payload["id_usuario"]
+
+    cur = con.cursor()
+
+    cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+            ORDER BY E.DATA_DEVOLVER ASC
+        """, (id_logado,))
+    emprestimos_ativos = cur.fetchall()
+
+    cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NOT NULL
+            ORDER BY E.DATA_DEVOLVIDO DESC
+        """, (id_logado,))
+    emprestimos_concluidos = cur.fetchall()
+
+    cur.execute("""
+            SELECT R.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_RESERVADO, R.DATA_VALIDADE
+            FROM RESERVAS R
+            JOIN ACERVO A ON R.ID_LIVRO = A.ID_LIVRO
+            WHERE R.ID_USUARIO = ? 
+            ORDER BY R.DATA_VALIDADE ASC
+        """, (id_logado,))
+    reservas_ativas = cur.fetchall()
+
+    cur.execute("""
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO
+            FROM MULTAS M
+            WHERE M.ID_USUARIO = ?
+            ORDER BY TOTAL DESC
+        """, (id_logado,))
+    multas_pendentes = cur.fetchall()
+
+    historico = {
+        "emprestimos_ativos": [
+            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+             "data_devolver": e[5]}
+            for e in emprestimos_ativos
+        ],
+        "emprestimos_concluidos": [
+            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+             "data_devolver": e[5], "data_devolvido": e[6]}
+            for e in emprestimos_concluidos
+        ],
+        "reservas_ativas": [
+            {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_reservado": r[4],
+             "data_validade": r[5]}
+            for r in reservas_ativas
+        ],
+        "multas_pendentes": [
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4]}
+            for m in multas_pendentes
+        ]
+    }
+
+    cur.close()
+
+    return jsonify(historico)
+
+
+@app.route('/editar_usuario/<int:id_usuario>', methods=["PUT"])
+def usuario_put_id(id_usuario):
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    # Verificar se o usuário existe
+    cur.execute("SELECT * FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+    usuario_data = cur.fetchone()
+    if not usuario_data:
+        cur.close()
+        return jsonify({"message": "Usuário não encontrado"}), 404
+
+    data = request.form
+
+    nome = data.get('nome')
+    email = data.get('email')
+    telefone = data.get('telefone')
+    endereco = data.get('endereco')
+    senha_nova = data.get('senha')
+    senha_confirm = data.get('senhaConfirm')
+    senha_antiga = data.get('senhaAntiga')
+    tipo_usuario = data.get('tipo')
+    imagem = request.files.get('imagem')
+
+    print(data)
+
+    if not all([nome, email, telefone, endereco]):
+        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
+
+    # Lógica para alteração de senha
+    if senha_nova or senha_confirm:
+        if not senha_antiga:
+            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
+
+        if senha_nova == senha_antiga:
+            return jsonify({"message": "A senha nova não pode ser igual a senha atual"})
+
+        cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+        senha_armazenada = cur.fetchone()[0]
+
+        if not check_password_hash(senha_armazenada, senha_antiga):
+            return jsonify({"message": "Senha antiga incorreta."}), 400
+
+        if senha_nova != senha_confirm:
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+
+        if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
+                c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
+                c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+            return jsonify({
+                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
+
+        senha_nova = generate_password_hash(senha_nova)
+        cur.execute(
+            "UPDATE usuarios SET senha = ? WHERE id_usuario = ?",
+            (senha_nova, id_usuario)
+        )
+
+    # Verificando se o email ou telefone já estão sendo usados por outro usuário
+    cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
+    if cur.fetchone():
+        return jsonify({
+            "message": "Este email pertence a outra pessoa"
+        }), 400
+
+    cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
+    if cur.fetchone():
+        return jsonify({
+            "message": "Este telefone pertence a outra pessoa"
+        }), 400
+
+    # Atualizando as informações do usuário
+    cur.execute(
+        "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
+        (nome, email, telefone, endereco, id_usuario)
+    )
+
+    # Se o tipo do usuário for fornecido, atualizar o tipo
+    if tipo_usuario:
+        cur.execute("UPDATE USUARIOS SET tipo = ? WHERE id_usuario = ?", (tipo_usuario, id_usuario))
+
+    # Salvar imagem se fornecida
+    if imagem:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        imagem.save(imagem_path)
+
+    # Commit das alterações
+    con.commit()
+
+    cur.close()
+    return jsonify({"message": "Usuário atualizado com sucesso"}), 200
