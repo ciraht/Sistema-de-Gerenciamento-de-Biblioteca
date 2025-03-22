@@ -13,7 +13,7 @@ senha_secreta = app.config['SECRET_KEY']
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
-        'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=45)
+        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=45)
     }
     token = jwt.encode(payload, senha_secreta, algorithm='HS256')
     return token
@@ -241,7 +241,7 @@ def logar():
                     "message": "Este usuário está inativado",
                     "id_user": id_user
                 }
-            ), 400
+            ), 401
 
         if check_password_hash(senha_hash, senha):
 
@@ -249,6 +249,11 @@ def logar():
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
             tipo = tipo.fetchone()[0]
             token = generate_token(id_user)
+            # Excluir as tentativas que deram errado
+            id_user_str = f"usuario-{id_user}"
+            if id_user_str in global_contagem_erros:
+                del global_contagem_erros[id_user_str]
+                print("Contagem de erros deletada")
             if tipo == 2:
                 return jsonify(
                     {
@@ -275,7 +280,6 @@ def logar():
                         "tipo": tipo
                     }
                 ), 200
-
         else:
             # Ignorar isso tudo se o usuário for administrador
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
@@ -286,17 +290,20 @@ def logar():
                 if id_user_str not in global_contagem_erros:
                     global_contagem_erros[id_user_str] = 1
                 else:
-                    if global_contagem_erros[id_user_str] > 3:
-                        return jsonify({"message": "Tentativas excedidas, usuário já está inativado"}), 401
                     global_contagem_erros[id_user_str] += 1
 
-                    print(f"Segundo: {global_contagem_erros}")
 
-                    if global_contagem_erros[id_user_str] >= 3:
+
+                    if global_contagem_erros[id_user_str] == 3:
                         cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user, ))
                         con.commit()
                         cur.close()
                         return jsonify({"message": "Tentativas excedidas, usuário inativado"}), 401
+                    elif global_contagem_erros[id_user_str] > 3:
+                        global_contagem_erros[id_user_str] = 1
+                        print("Contagem resetada para 1") # Em teoria é para ser impossível a execução chegar aqui
+
+                    print(f"Segundo: {global_contagem_erros}")
 
             return jsonify({"message": "Credenciais inválidas"}), 401
     else:
@@ -482,8 +489,6 @@ def deletar_usuario():
     cur.close()
 
     # Excluir a imagem de usuário da aplicação caso houver
-    print(
-        f"Existe o folder: {os.path.exists(app.config['UPLOAD_FOLDER'])}, Existe o arquivo: {os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{id_usuario}")}")
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
@@ -1092,26 +1097,9 @@ def deletar_reservas():
 
 @app.route('/usuarios/pesquisa', methods=["GET"])
 def pesquisar_usuarios():
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
-
-    token = remover_bearer(token)
-    try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'mensagem': 'Token expirado'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'mensagem': 'Token inválido'}), 401
-
-    id_logado = payload["id_usuario"]
-    cur = con.cursor()
-
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
-    resultado = cur.fetchone()
-
-    if not resultado or resultado[0] is None:
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
 
     data = request.get_json()
     pesquisa = data.get("pesquisa")
@@ -1136,6 +1124,7 @@ def pesquisar_usuarios():
     if "reservas_validas" in filtros:
         sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS r WHERE r.DATA_VALIDADE >= CURRENT_DATE)"
 
+    cur = con.cursor()
     sql += "\nORDER BY u.nome"
     cur.execute(sql, params)
     resultados = cur.fetchall()
@@ -1223,17 +1212,9 @@ def get_tag(id):
 
 @app.route("/avaliarlivro/<int:id>", methods=["PUT"])
 def avaliar_livro(id):
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
-
-    token = remover_bearer(token)
-    try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'mensagem': 'Token expirado'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'mensagem': 'Token inválido'}), 401
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
 
     data = request.get_json()
     valor = data.get("valor")
@@ -1250,7 +1231,7 @@ def avaliar_livro(id):
     cur.close()
 
     return jsonify({
-      "mensagem": "Avaliado com sucesso"
+      "message": "Avaliado com sucesso"
     })
 
 
