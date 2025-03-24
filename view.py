@@ -505,6 +505,57 @@ def deletar_usuario():
     return jsonify({'message': "Usuário excluído com sucesso"})
 
 
+# Para ADM
+@app.route('/excluir_imagem_user2/<int:id_usuario>', methods=["GET"])
+def excluir_imagem_adm(id_usuario):
+
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    valido = True
+    ext_real = None
+    for ext in imagens:
+        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario) + ext}"):
+            valido = False
+            ext_real = ext
+    if not valido:
+        os.remove(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario) + ext_real}")
+
+    return jsonify({"message": "Imagem de perfil excluída com sucesso"}, 200)
+
+
+# Para usuários excluírem sua própria imagem
+@app.route('/excluir_imagem_user/<int:id_usuario>', methods=["GET"])
+def excluir_imagem(id_usuario):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    if payload["id_usuario"] != id_usuario:
+        return jsonify({"message": "Ação não autorizada"}, 401)
+
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    valido = True
+    ext_real = None
+    for ext in imagens:
+        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario) + ext}"):
+            valido = False
+            ext_real = ext
+    if not valido:
+        os.remove(rf"{app.config['UPLOAD_FOLDER']}\Usuarios\{str(id_usuario) + ext_real}")
+
+    return jsonify({"message": "Imagem de perfil excluída com sucesso"}, 200)
+
+
 @app.route('/livros', methods=["GET"])
 def get_livros():
     cur = con.cursor()
