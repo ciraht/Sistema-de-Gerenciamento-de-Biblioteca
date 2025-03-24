@@ -1381,11 +1381,11 @@ def gerar_relatorio_livros():
     pdf.set_font("Arial", size=12)
 
     for livro in livros:
-        pdf.cell(200, 10,
-                 f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}",
-                 ln=True)
+        pdf.multi_cell(200, 10,
+                 f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}")
+        pdf.ln(5)
 
-    pdf.ln(10)  # Espaço antes do contador
+    pdf.ln(5)  # Espaço antes do contador
     pdf.set_font("Arial", style='B', size=12)
     pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
 
@@ -1425,12 +1425,12 @@ def gerar_relatorio_usuarios():
     pdf.set_font("Arial", size=12)
 
     for usuario in usuarios:
-        pdf.cell(200, 10,
-                 f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}",
-                 ln=True)
+        pdf.multi_cell(200, 10,
+                 f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}")
+        pdf.ln(5)
 
     contador_usuarios = len(usuarios)
-    pdf.ln(10)  # Espaço antes do contador
+    pdf.ln(5)  # Espaço antes do contador
     pdf.set_font("Arial", style='B', size=12)
     pdf.cell(200, 10, f"Total de usuarios cadastrados: {contador_usuarios}", ln=True, align='C')
 
