@@ -1770,3 +1770,26 @@ def usuario_put_id(id_usuario):
 
     cur.close()
     return jsonify({"message": "Usuário atualizado com sucesso"}), 200
+
+
+@app.route("/tem_permissao_adm", methods=["get"])
+def tem_permissao_adm():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
+    token = remover_bearer(token)
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+    except jwt.ExpiredSignatureError:
+        return jsonify({'mensagem': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'mensagem': 'Token inválido'}), 401
+
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
+    admin = cur.fetchone()
+    if not admin:
+        return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
+    cur.close()
+    return jsonify({"message": "deu certo"}), 200
