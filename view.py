@@ -3,7 +3,7 @@ import jwt
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
 import config
-from main import app, conectar_no_banco
+from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
 
@@ -40,7 +40,7 @@ def verificar_user(tipo, trazer_pl):
         return 3  # Token inválido
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     if tipo == 2:
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
@@ -147,7 +147,6 @@ def cadastrar():
             return jsonify({"message": "A senha deve conter pelo menos um caractere especial."}), 401
 
         # Abrindo o Cursor
-        con = conectar_no_banco()
         cur = con.cursor()
 
         # Checando duplicações
@@ -242,7 +241,7 @@ def logar():
     email = email.lower()
 
     print(email, senha)
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Checando se a senha está correta
@@ -343,7 +342,7 @@ def reativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -378,7 +377,7 @@ def inativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -414,7 +413,7 @@ def usuario_put():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
     usuario_data = cur.fetchone()
@@ -505,7 +504,7 @@ def deletar_usuario():
     if verificacao:
         return verificacao
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     data = request.get_json()
@@ -599,7 +598,7 @@ def excluir_imagem(id_usuario):
 
 @app.route('/livros', methods=["GET"])
 def get_livros():
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -673,7 +672,7 @@ def adicionar_livros():
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Verificando se a ISBN já está cadastrada
@@ -748,7 +747,7 @@ def editar_livro(id_livro):
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)",
                 (id_logado,))
@@ -758,7 +757,7 @@ def editar_livro(id_livro):
 
     data = request.form
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
                 (id_livro,))
@@ -854,7 +853,7 @@ def livro_delete():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     biblio = cur.fetchone()
@@ -886,7 +885,7 @@ def livro_delete():
     cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
 
-    con = conectar_no_banco()
+    
     con.commit()
     cur.close()
 
@@ -919,7 +918,7 @@ def emprestar_livros():
     if not all([id_leitor, conjunto_livros]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Checando se todos os livros existem
@@ -992,7 +991,7 @@ def devolver_emprestimo():
 
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Verificações
@@ -1029,7 +1028,7 @@ def renovar_emprestimo():
 
     if not all([dias, id_emprestimo]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Verificar se o id existe e se já não foi devolvido o empréstimo
@@ -1060,7 +1059,7 @@ def reservar_livros():
     if not all([id_leitor, id_livro]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Checando se o livro existe
@@ -1131,7 +1130,7 @@ def enviar_imagem_livro():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
@@ -1186,7 +1185,7 @@ def deletar_reservas():
     if not id_reserva:
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Checando se a reserva existe
@@ -1234,7 +1233,7 @@ def pesquisar_usuarios():
     if "reservas_validas" in filtros:
         sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS r WHERE r.DATA_VALIDADE >= CURRENT_DATE)"
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     sql += "\nORDER BY u.nome"
     cur.execute(sql, params)
@@ -1263,7 +1262,7 @@ def pesquisar():
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Pesquisando texto
@@ -1309,7 +1308,7 @@ def pesquisar():
 
 @app.route('/tags', methods=["GET"])
 def get_tags():
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT id_tag, nome_tag from tags")
     tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
@@ -1319,7 +1318,7 @@ def get_tags():
 
 @app.route('/tags/<int:id>', methods=["GET"])
 def get_tag(id):
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT id_tag, id_livro from livro_tags where id_livro = ?", (id,))
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
@@ -1335,7 +1334,7 @@ def avaliar_livro(id):
 
     data = request.get_json()
     valor = data.get("valor")
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()[0]
@@ -1355,7 +1354,7 @@ def avaliar_livro(id):
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -1418,7 +1417,7 @@ def get_livros_id(id):
 
 @app.route('/relatorio/livros', methods=['GET'])
 def gerar_relatorio_livros():
-    con = conectar_no_banco()
+    
     cursor = con.cursor()
     cursor.execute("""
         SELECT 
@@ -1469,7 +1468,7 @@ def gerar_relatorio_livros():
 
 @app.route('/relatorio/usuarios', methods=['GET'])
 def gerar_relatorio_usuarios():
-    con = conectar_no_banco()
+    
     cursor = con.cursor()
     cursor.execute("""
         SELECT
@@ -1516,7 +1515,7 @@ def gerar_relatorio_usuarios():
 def get_user_id(id):
     print(f"Recebido ID: {id}")  # Verifique se o ID é recebido corretamente
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -1566,7 +1565,7 @@ def usuarios():
         FROM usuarios
         order by nome;
         """
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute(usuarios)
     catchUsuarios = cur.fetchall()
@@ -1630,7 +1629,7 @@ def trocar_tipo(id):
     if verificacao:
         return verificacao
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     data = request.get_json()
@@ -1662,7 +1661,7 @@ def tem_permissao():
         return jsonify({'mensagem': 'Token inválido'}), 401
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
     bibli = cur.fetchone()
@@ -1682,7 +1681,7 @@ def puxar_historico():
     payload = informar_verificacao(trazer_pl=True)
     id_logado = payload["id_usuario"]
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     cur.execute("""
@@ -1755,7 +1754,7 @@ def usuario_put_id(id_usuario):
     if verificacao:
         return verificacao
 
-    con = conectar_no_banco()
+    
     cur = con.cursor()
 
     # Verificar se o usuário existe
@@ -1848,6 +1847,7 @@ def usuario_put_id(id_usuario):
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
         imagem.save(imagem_path)
+        print("oi\n\n\n\n")
 
     # Commit das alterações
     con.commit()
@@ -1870,7 +1870,7 @@ def tem_permissao_adm():
         return jsonify({'mensagem': 'Token inválido'}), 401
 
     id_logado = payload["id_usuario"]
-    con = conectar_no_banco()
+    
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
     admin = cur.fetchone()

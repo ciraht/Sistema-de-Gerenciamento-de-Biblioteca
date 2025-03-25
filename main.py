@@ -12,13 +12,11 @@ user = app.config['DB_USER']
 password = app.config['DB_PASSWORD']
 
 
-def conectar_no_banco():
-    try:
-        con = fdb.connect(host=host, database=database, user=user, password=password)
-        print(f"Conexão estabelecida com sucesso")
-        return con
-    except Exception as e:
-        print(f"Erro de conexão com o banco: {e}")
+try:
+    con = fdb.connect(host=host, database=database, user=user, password=password)
+    print(f"Conexão estabelecida com sucesso")
+except Exception as e:
+    print(f"Erro de conexão com o banco: {e}")
 
 
 from view import *
