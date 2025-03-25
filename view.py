@@ -41,21 +41,24 @@ def verificar_user(tipo, trazer_pl):
 
     id_logado = payload["id_usuario"]
     cur = con.cursor()
-    if tipo == 2 or tipo == "biblio":
+    if tipo == 2:
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
         biblio = cur.fetchone()
         if not biblio:
+            cur.close()
             return 4  # Nível bibliotecário requerido
 
-    elif tipo == 3 or tipo == "adm" or tipo == "admin":
+    elif tipo == 3:
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3", (id_logado,))
         admin = cur.fetchone()
         if not admin:
+            cur.close()
             return 5  # Nível Administrador requerido
 
     if trazer_pl:
+        cur.close()
         return payload
-
+    cur.close()
     pass
 
 
@@ -137,10 +140,12 @@ def cadastrar():
         # Checando duplicações
         cur.execute("SELECT 1 FROM usuarios WHERE email = ?", (email, ))
         if cur.fetchone():
+            cur.close()
             return jsonify({"message": "Email já cadastrado"}), 409
 
         cur.execute("SELECT 1 FROM usuarios WHERE telefone = ?", (telefone, ))
         if cur.fetchone():
+            cur.close()
             return jsonify({"message": "Telefone já cadastrado"}), 409
 
         senha = generate_password_hash(senha).decode('utf-8')
@@ -169,6 +174,7 @@ def cadastrar():
             id_usuario = cur.fetchone()[0]
             con.commit()
         else:
+            cur.close()
             return jsonify(
                 {
                     "message": "Tipo de usuário inválido"
@@ -207,6 +213,7 @@ def cadastrar():
         ), 200
 
     except Exception as e:
+        print(e)
         return jsonify({"message": f"Erro: {str(e)}"}), 500
 
 
@@ -255,6 +262,7 @@ def logar():
                 del global_contagem_erros[id_user_str]
                 print("Contagem de erros deletada")
             if tipo == 2:
+                cur.close()
                 return jsonify(
                     {
                         "message": "Bibliotecário entrou com sucesso",
@@ -264,6 +272,7 @@ def logar():
                     }
                 ), 200
             elif tipo == 3:
+                cur.close()
                 return jsonify(
                     {
                         "message": "Administrador entrou com sucesso",
@@ -272,6 +281,7 @@ def logar():
                         "tipo": tipo
                     })
             else:
+                cur.close()
                 return jsonify(
                     {
                         "message": "Leitor entrou com sucesso",
@@ -292,8 +302,6 @@ def logar():
                 else:
                     global_contagem_erros[id_user_str] += 1
 
-
-
                     if global_contagem_erros[id_user_str] == 3:
                         cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user, ))
                         con.commit()
@@ -305,8 +313,10 @@ def logar():
 
                     print(f"Segundo: {global_contagem_erros}")
 
+            cur.close()
             return jsonify({"message": "Credenciais inválidas"}), 401
     else:
+        cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
 
@@ -323,16 +333,19 @@ def reativar_usuario():
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     if not cur.fetchone():
+        cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
     cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     tipo = cur.fetchone()[0]
     if tipo == 3:
+        cur.close()
         return jsonify({"message": "Esse usuário não pode ser reativado"}), 401
 
     # Checar se já está ativo
     cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     if cur.fetchone()[0]:
+        cur.close()
         return jsonify({"message": "Usuário já está ativo"}), 200
 
     cur.execute("UPDATE USUARIOS SET ATIVO = TRUE WHERE ID_USUARIO = ?", (id_usuario,))
@@ -354,11 +367,13 @@ def inativar_usuario():
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     if not cur.fetchone():
+        cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
     cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     tipo = cur.fetchone()[0]
     if tipo == 3:
+        cur.close()
         return jsonify({"message": "Esse usuário não pode ser inativado"}), 401
 
     # Checar se já está inativado
@@ -366,6 +381,7 @@ def inativar_usuario():
     tipo = cur.fetchone()[0]
     print(tipo)
     if not tipo:
+        cur.close()
         return jsonify({"message": "Usuário já está inativado"}), 200
 
     cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_usuario,))
@@ -401,27 +417,33 @@ def usuario_put():
     imagem = request.files.get('imagem')
 
     if not all([nome, email, telefone, endereco]):
+        cur.close()
         return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
 
     if senha_nova or senha_confirm:
         if not senha_antiga:
+            cur.close()
             return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
 
         if senha_nova == senha_antiga:
+            cur.close()
             return jsonify({"message": "A senha nova não pode ser igual a senha atual"})
 
         cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario, ))
         senha_armazenada = cur.fetchone()[0]
 
         if not check_password_hash(senha_armazenada, senha_antiga):
+            cur.close()
             return jsonify({"message": "Senha antiga incorreta."}), 400
 
         if senha_nova != senha_confirm:
+            cur.close()
             return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                 c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
                 c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+            cur.close()
             return jsonify({
                                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
 
@@ -432,12 +454,14 @@ def usuario_put():
         )
     cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
     if cur.fetchone():
+        cur.close()
         return jsonify({
             "message": "Este email pertence a outra pessoa"
         }), 400
 
     cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
     if cur.fetchone():
+        cur.close()
         return jsonify({
             "message": "Este telefone pertence a outra pessoa"
         }), 400
@@ -643,6 +667,7 @@ def adicionar_livros():
         cur.close()
         return jsonify({"error": "Quantidade disponível precisa ser maior que 1"}), 401
     if int(ano_publicado) > datetime.date.today().year:
+        cur.close()
         return jsonify({"error": "Ano publicado deve ser condizente com a data atual"}), 401
 
     # Adicionando os dados na Database
@@ -749,6 +774,7 @@ def editar_livro(id_livro):
             cur.close()
             return jsonify({"message": "ISBN já cadastrado"})
     if int(ano_publicado) > datetime.date.today().year:
+        cur.close()
         return jsonify({"message": "Ano publicado deve ser condizente com a data atual"}), 401
 
     cur.execute(
@@ -812,6 +838,7 @@ def livro_delete():
     biblio = cur.fetchone()
 
     if not biblio:
+        cur.close()
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
 
     # Obter JSON da requisição
@@ -819,6 +846,7 @@ def livro_delete():
 
     # Garantir que o ID foi enviado
     if not data or 'id_livro' not in data:
+        cur.close()
         return jsonify({"error": "ID do livro não fornecido"}), 400
 
     id_livro = data['id_livro']
@@ -950,10 +978,12 @@ def devolver_emprestimo():
         # Se o ID não existe no banco de dados
         cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
         if not cur.fetchone():
+            cur.close()
             return jsonify({"message": "Id de empréstimo não encontrado"}), 404
 
     cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND DATA_DEVOLVIDO IS NOT NULL", (id_emprestimo, ))
     if cur.fetchone():
+        cur.close()
         return jsonify({"message": "Empréstimo já devolvido"}), 400
 
     # Devolver o empréstimo
@@ -971,10 +1001,10 @@ def renovar_emprestimo():
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
     dias = data.get("dias")
-    cur = con.cursor()
 
     if not all([dias, id_emprestimo]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+    cur = con.cursor()
 
     # Verificar se o id existe e se já não foi devolvido o empréstimo
     cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
@@ -1184,6 +1214,7 @@ def pesquisar_usuarios():
         cur.close()
         return jsonify({"mensagem": "Nenhum resultado encontrado"}), 404
 
+    cur.close()
     return jsonify({
         "mensagem": "Pesquisa realizada com sucesso",
         "resultados": [{"nome": r[0], "email": r[1], "telefone": r[2], "endereco": r[3], "senha": r[4], "tipo": r[5]}
@@ -1236,6 +1267,7 @@ def pesquisar():
         cur.close()
         return jsonify({"message": "Nenhum resultado encontrado"}), 404
 
+    cur.close()
     return jsonify({
         "message": "Pesquisa realizada com sucesso",
         "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
@@ -1479,6 +1511,7 @@ def get_user_id(id):
         "imagem": f"{usuario[0]}.jpeg"
     })
 
+
 @app.route('/usuarios', methods=["get"])
 def usuarios():
     usuarios = """
@@ -1513,10 +1546,8 @@ def usuarios():
 
         listaUsuarios.append(users)
 
+    cur.close()
     return jsonify(listaUsuarios), 200
-
-
-
 
 
 @app.route('/token', methods=["POST"])
@@ -1570,8 +1601,8 @@ def trocar_tipo(id):
     elif data == 3:
         cur.execute("UPDATE USUARIOS SET tipo = 3 WHERE ID_USUARIO = ?", (id,))
 
-
     con.commit()
+    cur.close()
 
     return jsonify({"message": "Usuário atualizado com sucesso", "tipo": data}), 202
 
@@ -1594,6 +1625,7 @@ def tem_permissao():
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
     bibli = cur.fetchone()
     if not bibli:
+        cur.close()
         return jsonify({'mensagem': 'Nível Bibliotecário requerido'}), 401
     cur.close()
     return jsonify({"message": "deu certo"}), 200
@@ -1704,28 +1736,34 @@ def usuario_put_id(id_usuario):
     print(data)
 
     if not all([nome, email, telefone, endereco]):
+        cur.close()
         return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
 
     # Lógica para alteração de senha
     if senha_nova or senha_confirm:
         if not senha_antiga:
+            cur.close()
             return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
 
         if senha_nova == senha_antiga:
+            cur.close()
             return jsonify({"message": "A senha nova não pode ser igual a senha atual"})
 
         cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
         senha_armazenada = cur.fetchone()[0]
 
         if not check_password_hash(senha_armazenada, senha_antiga):
+            cur.close()
             return jsonify({"message": "Senha antiga incorreta."}), 400
 
         if senha_nova != senha_confirm:
+            cur.close()
             return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                 c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
                 c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+            cur.close()
             return jsonify({
                 "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
 
@@ -1738,12 +1776,14 @@ def usuario_put_id(id_usuario):
     # Verificando se o email ou telefone já estão sendo usados por outro usuário
     cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
     if cur.fetchone():
+        cur.close()
         return jsonify({
             "message": "Este email pertence a outra pessoa"
         }), 400
 
     cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
     if cur.fetchone():
+        cur.close()
         return jsonify({
             "message": "Este telefone pertence a outra pessoa"
         }), 400
@@ -1790,6 +1830,7 @@ def tem_permissao_adm():
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
     admin = cur.fetchone()
     if not admin:
+        cur.close()
         return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
     cur.close()
     return jsonify({"message": "deu certo"}), 200
