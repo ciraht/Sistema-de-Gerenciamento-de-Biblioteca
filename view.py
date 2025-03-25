@@ -1,15 +1,15 @@
 import os
 import jwt
 import datetime
-from flask import Flask, jsonify, request, send_file, send_from_directory, json
+from flask import jsonify, request, send_file, send_from_directory
 import config
-from main import app, con
+from main import app, conectar_no_banco
 from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
 
 senha_secreta = app.config['SECRET_KEY']
 
-
+# Funções relacionadas a Tokens
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
@@ -40,6 +40,7 @@ def verificar_user(tipo, trazer_pl):
         return 3  # Token inválido
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
     if tipo == 2:
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
@@ -80,6 +81,17 @@ def informar_verificacao(tipo=0, trazer_pl=False):
         return None
 
 
+@app.route('/tem_permissao/<int:tipo>', methods=["GET"])
+def verificar(tipo):
+    if tipo:
+        verificacao = informar_verificacao(tipo)
+    else:
+        verificacao = informar_verificacao()
+
+    if verificacao:
+        return verificacao
+
+
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
     try:
@@ -99,13 +111,13 @@ def cadastrar():
 
         # Verificando se tem todos os dados
         if not all([nome, email, senha, tipo, confirmSenha]):
-            return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+            return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
         if senha != confirmSenha:
-            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
 
         if len(senha) < 8:
-            return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"}),401
+            return jsonify({"message": "Sua senha deve conter pelo menos 8 caracteres"}), 401
 
         tem_maiuscula = False
         tem_minuscula = False
@@ -135,15 +147,16 @@ def cadastrar():
             return jsonify({"message": "A senha deve conter pelo menos um caractere especial."}), 401
 
         # Abrindo o Cursor
+        con = conectar_no_banco()
         cur = con.cursor()
 
         # Checando duplicações
-        cur.execute("SELECT 1 FROM usuarios WHERE email = ?", (email, ))
+        cur.execute("SELECT 1 FROM usuarios WHERE email = ?", (email,))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Email já cadastrado"}), 409
 
-        cur.execute("SELECT 1 FROM usuarios WHERE telefone = ?", (telefone, ))
+        cur.execute("SELECT 1 FROM usuarios WHERE telefone = ?", (telefone,))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "Telefone já cadastrado"}), 409
@@ -179,7 +192,7 @@ def cadastrar():
                 {
                     "message": "Tipo de usuário inválido"
                 }
-            ), 400
+            ), 401
         con.commit()
 
         print(id_usuario)
@@ -229,10 +242,11 @@ def logar():
     email = email.lower()
 
     print(email, senha)
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Checando se a senha está correta
-    cur.execute("SELECT senha, id_usuario FROM usuarios WHERE email = ?", (email, ))
+    cur.execute("SELECT senha, id_usuario FROM usuarios WHERE email = ?", (email,))
     resultado = cur.fetchone()
 
     if resultado:
@@ -253,7 +267,7 @@ def logar():
         if check_password_hash(senha_hash, senha):
 
             # Pegar o tipo do usuário para levar à página certa
-            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
+            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
             tipo = tipo.fetchone()[0]
             token = generate_token(id_user)
             # Excluir as tentativas que deram errado
@@ -292,7 +306,7 @@ def logar():
                 ), 200
         else:
             # Ignorar isso tudo se o usuário for administrador
-            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user, ))
+            tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
             tipo = tipo.fetchone()[0]
             if tipo != 3:
                 print(f"Primeiro: {global_contagem_erros}")
@@ -303,13 +317,13 @@ def logar():
                     global_contagem_erros[id_user_str] += 1
 
                     if global_contagem_erros[id_user_str] == 3:
-                        cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user, ))
+                        cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_user,))
                         con.commit()
                         cur.close()
                         return jsonify({"message": "Tentativas excedidas, usuário inativado"}), 401
                     elif global_contagem_erros[id_user_str] > 3:
                         global_contagem_erros[id_user_str] = 1
-                        print("Contagem resetada para 1") # Em teoria é para ser impossível a execução chegar aqui
+                        print("Contagem resetada para 1")  # Em teoria é para ser impossível a execução chegar aqui
 
                     print(f"Segundo: {global_contagem_erros}")
 
@@ -329,6 +343,7 @@ def reativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
+    con = conectar_no_banco()
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -363,6 +378,7 @@ def inativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
+    con = conectar_no_banco()
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -398,8 +414,9 @@ def usuario_put():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
-    cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario, ))
+    cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
     usuario_data = cur.fetchone()
 
     if not usuario_data:
@@ -418,34 +435,34 @@ def usuario_put():
 
     if not all([nome, email, telefone, endereco]):
         cur.close()
-        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 401
 
     if senha_nova or senha_confirm:
         if not senha_antiga:
             cur.close()
-            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
+            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 401
 
         if senha_nova == senha_antiga:
             cur.close()
-            return jsonify({"message": "A senha nova não pode ser igual a senha atual"})
+            return jsonify({"message": "A senha nova não pode ser igual a senha atual"}), 401
 
-        cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario, ))
+        cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
         senha_armazenada = cur.fetchone()[0]
 
         if not check_password_hash(senha_armazenada, senha_antiga):
             cur.close()
-            return jsonify({"message": "Senha antiga incorreta."}), 400
+            return jsonify({"message": "Senha antiga incorreta."}), 401
 
         if senha_nova != senha_confirm:
             cur.close()
-            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                 c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
-                c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+            c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
             cur.close()
             return jsonify({
-                               "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
+                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
         senha_nova = generate_password_hash(senha_nova)
         cur.execute(
@@ -457,14 +474,14 @@ def usuario_put():
         cur.close()
         return jsonify({
             "message": "Este email pertence a outra pessoa"
-        }), 400
+        }), 401
 
     cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
     if cur.fetchone():
         cur.close()
         return jsonify({
             "message": "Este telefone pertence a outra pessoa"
-        }), 400
+        }), 401
 
     cur.execute(
         "UPDATE usuarios SET nome = ?, email = ?, telefone = ?, endereco = ? WHERE id_usuario = ?",
@@ -488,12 +505,13 @@ def deletar_usuario():
     if verificacao:
         return verificacao
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     data = request.get_json()
     id_usuario = data.get("id_usuario")
     # Verificar se o usuario existe
-    cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id_usuario, ))
+    cur.execute("SELECT 1 FROM usuarios WHERE ID_usuario = ?", (id_usuario,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"error": "Usuário não encontrado"}), 404
@@ -502,13 +520,13 @@ def deletar_usuario():
     cur.execute("""
     DELETE FROM ITENS_EMPRESTIMO i WHERE
      i.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.ID_USUARIO = ?)
-     """, (id_usuario, ))
-    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario, ))
-    cur.execute("DELETE FROM RESERVAS WHERE ID_USUARIO = ?", (id_usuario, ))
-    cur.execute("DELETE FROM MULTAS WHERE ID_USUARIO = ?", (id_usuario, ))
+     """, (id_usuario,))
+    cur.execute("DELETE FROM EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
+    cur.execute("DELETE FROM RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
+    cur.execute("DELETE FROM MULTAS WHERE ID_USUARIO = ?", (id_usuario,))
 
     # Excluir o usuario
-    cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id_usuario, ))
+    cur.execute("DELETE FROM usuarios WHERE ID_usuario = ?", (id_usuario,))
     con.commit()
     cur.close()
 
@@ -532,7 +550,6 @@ def deletar_usuario():
 # Para ADM
 @app.route('/excluir_imagem_user2/<int:id_usuario>', methods=["GET"])
 def excluir_imagem_adm(id_usuario):
-
     verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
@@ -582,6 +599,7 @@ def excluir_imagem(id_usuario):
 
 @app.route('/livros', methods=["GET"])
 def get_livros():
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -606,7 +624,7 @@ def get_livros():
             FROM LIVRO_TAGS lt
             LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
             WHERE lt.ID_LIVRO = ?
-        """, (r[0], ))
+        """, (r[0],))
         tags = cur.fetchall()
 
         selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
@@ -653,12 +671,13 @@ def adicionar_livros():
     print(tags)
 
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Verificando se a ISBN já está cadastrada
-    cur.execute("SELECT 1 FROM acervo WHERE isbn = ?", (isbn, ))
+    cur.execute("SELECT 1 FROM acervo WHERE isbn = ?", (isbn,))
     if cur.fetchone():
         cur.close()
         return jsonify({"error": "ISBN já cadastrada"}), 404
@@ -692,7 +711,7 @@ def adicionar_livros():
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
 
     # Criando um registro avaliações vazio para poder editar usando a rota de avaliar depois
-    cur.execute("INSERT INTO AVALIACOES (ID_LIVRO, VALOR_TOTAL, QTD_AVALIACOES) VALUES (?, 0, 0)", (livro_id, ))
+    cur.execute("INSERT INTO AVALIACOES (ID_LIVRO, VALOR_TOTAL, QTD_AVALIACOES) VALUES (?, 0, 0)", (livro_id,))
 
     con.commit()
     cur.close()
@@ -729,18 +748,20 @@ def editar_livro(id_livro):
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)",
-                (id_logado, ))
+                (id_logado,))
     biblio = cur.fetchone()
     if not biblio:
         return jsonify({'error': 'Nível Bibliotecário requerido'}), 401
 
     data = request.form
 
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
-                (id_livro, ))
+                (id_livro,))
     acervo_data = cur.fetchone()
 
     if not acervo_data:
@@ -764,12 +785,12 @@ def editar_livro(id_livro):
     # Verificando se tem todos os dados
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         cur.close()
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
     # Verificando se os dados novos já existem na DataBase
     isbnvelho = acervo_data[3].lower()
     if isbn != isbnvelho:
-        cur.execute("SELECT 1 FROM ACERVO WHERE ISBN = ? AND ID_LIVRO <> ?", (isbn, id_livro, ))
+        cur.execute("SELECT 1 FROM ACERVO WHERE ISBN = ? AND ID_LIVRO <> ?", (isbn, id_livro,))
         if cur.fetchone():
             cur.close()
             return jsonify({"message": "ISBN já cadastrado"})
@@ -787,7 +808,7 @@ def editar_livro(id_livro):
     )
     con.commit()
 
-    cur.execute("delete from livro_tags where id_livro = ? ", (id_livro, ))
+    cur.execute("delete from livro_tags where id_livro = ? ", (id_livro,))
     insert_data = []
 
     # Associando tags ao livro
@@ -833,8 +854,9 @@ def livro_delete():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado, ))
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     biblio = cur.fetchone()
 
     if not biblio:
@@ -847,23 +869,24 @@ def livro_delete():
     # Garantir que o ID foi enviado
     if not data or 'id_livro' not in data:
         cur.close()
-        return jsonify({"error": "ID do livro não fornecido"}), 400
+        return jsonify({"error": "ID do livro não fornecido"}), 401
 
     id_livro = data['id_livro']
 
     # Verificar se o livro existe
-    cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id_livro, ))
+    cur.execute("SELECT 1 FROM acervo WHERE ID_livro = ?", (id_livro,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
 
     # Excluir registros relacionados ao livro
-    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id_livro, ))
-    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id_livro, ))
-    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id_livro, ))
-    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro, ))
-    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro, ))
+    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id_livro,))
+    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id_livro,))
+    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id_livro,))
+    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
+    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
 
+    con = conectar_no_banco()
     con.commit()
     cur.close()
 
@@ -894,14 +917,15 @@ def emprestar_livros():
 
     # Checando se todos os dados foram preenchidos
     if not all([id_leitor, conjunto_livros]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Checando se todos os livros existem
     for livro in conjunto_livros:
         id_livro = livro[0]
-        cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro, ))
+        cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro,))
         if not cur.fetchone():
             cur.close()
             return jsonify({"message": "Um dos livros selecionados não existe"})
@@ -910,7 +934,7 @@ def emprestar_livros():
     for livro in conjunto_livros:
         cur.execute(
             "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
-            (livro[0], )
+            (livro[0],)
         )
         qtd_maxima = cur.fetchone()[0]
         # livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
@@ -918,7 +942,7 @@ def emprestar_livros():
             """SELECT count(ID_ITEM) FROM ITENS_EMPRESTIMO i WHERE
              i.id_livro = ? AND i.ID_EMPRESTIMO IN 
              (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.DATA_DEVOLVIDO IS NULL)""",
-            (livro[0], )
+            (livro[0],)
         )
         qtd_emprestada = cur.fetchone()[0]
         livros_nao_emprestados = qtd_maxima - qtd_emprestada
@@ -947,14 +971,14 @@ def emprestar_livros():
     cur.execute(
         """INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_RETIRADA, DATA_DEVOLVER)
           VALUES (?, CURRENT_DATE, DATEADD(DAY, 7, CURRENT_DATE)) RETURNING ID_EMPRESTIMO""",
-        (id_leitor, )
+        (id_leitor,)
     )
     id_emprestimo = cur.fetchone()[0]
     con.commit()
 
     # Inserindo os registros individuais de cada livro e os ligando ao empréstimo
     for livro in conjunto_livros:
-        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo, ))
+        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo,))
     con.commit()
     cur.close()
     return jsonify("Empréstimo feito com sucesso")
@@ -968,26 +992,27 @@ def devolver_emprestimo():
 
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Verificações
     if not id_emprestimo:
         # Se não recebeu o id
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
     else:
         # Se o ID não existe no banco de dados
-        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
+        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo,))
         if not cur.fetchone():
             cur.close()
             return jsonify({"message": "Id de empréstimo não encontrado"}), 404
 
-    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND DATA_DEVOLVIDO IS NOT NULL", (id_emprestimo, ))
+    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND DATA_DEVOLVIDO IS NOT NULL", (id_emprestimo,))
     if cur.fetchone():
         cur.close()
-        return jsonify({"message": "Empréstimo já devolvido"}), 400
+        return jsonify({"message": "Empréstimo já devolvido"}), 401
 
     # Devolver o empréstimo
-    cur.execute("UPDATE EMPRESTIMOS SET DATA_DEVOLVIDO = CURRENT_DATE WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
+    cur.execute("UPDATE EMPRESTIMOS SET DATA_DEVOLVIDO = CURRENT_DATE WHERE ID_EMPRESTIMO = ?", (id_emprestimo,))
     con.commit()
     cur.close()
     return jsonify({"message": "Devolução feita com sucesso"}), 200
@@ -1003,19 +1028,20 @@ def renovar_emprestimo():
     dias = data.get("dias")
 
     if not all([dias, id_emprestimo]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Verificar se o id existe e se já não foi devolvido o empréstimo
-    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo, ))
+    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo,))
     if not cur.fetchone():
         return jsonify({"message": "Id de empréstimo não existe"}), 404
-    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE DATA_DEVOLVIDO IS NOT NULL AND ID_EMPRESTIMO = ?", (id_emprestimo, ))
+    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE DATA_DEVOLVIDO IS NOT NULL AND ID_EMPRESTIMO = ?", (id_emprestimo,))
     if cur.fetchone():
         return jsonify({"message": "Este empréstimo já teve sua devolução"}), 404
 
     cur.execute("""UPDATE EMPRESTIMOS SET 
-    DATA_DEVOLVER = DATEADD(DAY, ?, CURRENT_DATE) WHERE ID_EMPRESTIMO = ?""", (dias, id_emprestimo, ))
+    DATA_DEVOLVER = DATEADD(DAY, ?, CURRENT_DATE) WHERE ID_EMPRESTIMO = ?""", (dias, id_emprestimo,))
     con.commit()
     cur.close()
     return jsonify({"message": "Empréstimo renovado com sucesso"}), 200
@@ -1032,12 +1058,13 @@ def reservar_livros():
 
     # Checando se todos os dados foram preenchidos
     if not all([id_leitor, id_livro]):
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Checando se o livro existe
-    cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro, ))
+    cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "O livro selecionado não existe"})
@@ -1104,8 +1131,9 @@ def enviar_imagem_livro():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado, ))
+    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
     biblio = cur.fetchone()[0]
     if not biblio:
@@ -1156,18 +1184,19 @@ def deletar_reservas():
 
     # Checando se todos os dados foram preenchidos
     if not id_reserva:
-        return jsonify({"message": "Todos os campos são obrigatórios"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Checando se a reserva existe
-    cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva, ))
+    cur.execute("SELECT 1 from reservas where id_reserva = ?", (id_reserva,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "A reserva selecionada não existe"})
 
     # Excluir a Reserva
-    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva, ))
+    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva,))
     con.commit()
     cur.close()
 
@@ -1187,7 +1216,7 @@ def pesquisar_usuarios():
     filtros = data.get("filtros", [])
 
     if not pesquisa:
-        return jsonify({"mensagem": "Nada pesquisado"}), 400
+        return jsonify({"mensagem": "Nada pesquisado"}), 401
 
     sql = """
         SELECT DISTINCT u.nome, u.email, u.telefone, 
@@ -1205,6 +1234,7 @@ def pesquisar_usuarios():
     if "reservas_validas" in filtros:
         sql += " OR u.ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS r WHERE r.DATA_VALIDADE >= CURRENT_DATE)"
 
+    con = conectar_no_banco()
     cur = con.cursor()
     sql += "\nORDER BY u.nome"
     cur.execute(sql, params)
@@ -1233,6 +1263,7 @@ def pesquisar():
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Pesquisando texto
@@ -1271,12 +1302,14 @@ def pesquisar():
     return jsonify({
         "message": "Pesquisa realizada com sucesso",
         "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
-                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6], "imagem": f"{r[0]}.jpeg"} for r in resultados]
+                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6], "imagem": f"{r[0]}.jpeg"} for r in
+                       resultados]
     }), 202
 
 
 @app.route('/tags', methods=["GET"])
 def get_tags():
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("SELECT id_tag, nome_tag from tags")
     tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
@@ -1286,8 +1319,9 @@ def get_tags():
 
 @app.route('/tags/<int:id>', methods=["GET"])
 def get_tag(id):
+    con = conectar_no_banco()
     cur = con.cursor()
-    cur.execute("SELECT id_tag, id_livro from livro_tags where id_livro = ?", (id, ))
+    cur.execute("SELECT id_tag, id_livro from livro_tags where id_livro = ?", (id,))
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
     cur.close()
     return jsonify(tags), 200
@@ -1301,10 +1335,11 @@ def avaliar_livro(id):
 
     data = request.get_json()
     valor = data.get("valor")
+    con = conectar_no_banco()
     cur = con.cursor()
-    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
+    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()[0]
-    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
+    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     qtd_avaliacoes = cur.fetchone()[0]
     print(f"Valor total: {valor_total}, Avaliações: {qtd_avaliacoes}")
 
@@ -1314,12 +1349,13 @@ def avaliar_livro(id):
     cur.close()
 
     return jsonify({
-      "message": "Avaliado com sucesso"
+        "message": "Avaliado com sucesso"
     })
 
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -1334,7 +1370,7 @@ def get_livros_id(id):
             a.ANO_PUBLICADO
         FROM ACERVO a
         WHERE a.id_livro = ?
-    """, (id, ))
+    """, (id,))
 
     livro = cur.fetchone()
 
@@ -1343,15 +1379,15 @@ def get_livros_id(id):
             FROM LIVRO_TAGS lt
             LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
             WHERE lt.ID_LIVRO = ?
-        """, (id, ))
+        """, (id,))
 
     tags = cur.fetchall()
 
     selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
 
-    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
+    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()[0]
-    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id, ))
+    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     qtd = cur.fetchone()[0]
     print(f'\nvalor_total: {valor_total}, qtd: {qtd}\n')
     if qtd != 0:
@@ -1382,6 +1418,7 @@ def get_livros_id(id):
 
 @app.route('/relatorio/livros', methods=['GET'])
 def gerar_relatorio_livros():
+    con = conectar_no_banco()
     cursor = con.cursor()
     cursor.execute("""
         SELECT 
@@ -1414,7 +1451,7 @@ def gerar_relatorio_livros():
 
     for livro in livros:
         pdf.multi_cell(200, 10,
-                 f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}")
+                       f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}")
         pdf.ln(5)
 
     pdf.ln(5)  # Espaço antes do contador
@@ -1432,6 +1469,7 @@ def gerar_relatorio_livros():
 
 @app.route('/relatorio/usuarios', methods=['GET'])
 def gerar_relatorio_usuarios():
+    con = conectar_no_banco()
     cursor = con.cursor()
     cursor.execute("""
         SELECT
@@ -1458,7 +1496,7 @@ def gerar_relatorio_usuarios():
 
     for usuario in usuarios:
         pdf.multi_cell(200, 10,
-                 f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}")
+                       f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}")
         pdf.ln(5)
 
     contador_usuarios = len(usuarios)
@@ -1478,6 +1516,7 @@ def gerar_relatorio_usuarios():
 def get_user_id(id):
     print(f"Recebido ID: {id}")  # Verifique se o ID é recebido corretamente
 
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -1491,7 +1530,7 @@ def get_user_id(id):
             ativo
         FROM usuarios
         WHERE id_usuario = ?
-    """, (id, ))
+    """, (id,))
 
     usuario = cur.fetchone()
     cur.close()
@@ -1527,6 +1566,7 @@ def usuarios():
         FROM usuarios
         order by nome;
         """
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute(usuarios)
     catchUsuarios = cur.fetchall()
@@ -1539,8 +1579,8 @@ def usuarios():
             'email': r[2],
             'telefone': r[3],
             'endereco': r[4],
-            'tipo':r[6],
-            'ativo':r[7],
+            'tipo': r[6],
+            'ativo': r[7],
             'imagem': f"{r[0]}.jpeg"
         }
 
@@ -1590,6 +1630,7 @@ def trocar_tipo(id):
     if verificacao:
         return verificacao
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     data = request.get_json()
@@ -1621,6 +1662,7 @@ def tem_permissao():
         return jsonify({'mensagem': 'Token inválido'}), 401
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
     bibli = cur.fetchone()
@@ -1640,6 +1682,7 @@ def puxar_historico():
     payload = informar_verificacao(trazer_pl=True)
     id_logado = payload["id_usuario"]
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     cur.execute("""
@@ -1712,6 +1755,7 @@ def usuario_put_id(id_usuario):
     if verificacao:
         return verificacao
 
+    con = conectar_no_banco()
     cur = con.cursor()
 
     # Verificar se o usuário existe
@@ -1737,13 +1781,13 @@ def usuario_put_id(id_usuario):
 
     if not all([nome, email, telefone, endereco]):
         cur.close()
-        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 400
+        return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha"}), 401
 
     # Lógica para alteração de senha
     if senha_nova or senha_confirm:
         if not senha_antiga:
             cur.close()
-            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 400
+            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 401
 
         if senha_nova == senha_antiga:
             cur.close()
@@ -1754,18 +1798,18 @@ def usuario_put_id(id_usuario):
 
         if not check_password_hash(senha_armazenada, senha_antiga):
             cur.close()
-            return jsonify({"message": "Senha antiga incorreta."}), 400
+            return jsonify({"message": "Senha antiga incorreta."}), 401
 
         if senha_nova != senha_confirm:
             cur.close()
-            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                 c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
-                c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+            c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
             cur.close()
             return jsonify({
-                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 400
+                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
         senha_nova = generate_password_hash(senha_nova)
         cur.execute(
@@ -1779,14 +1823,14 @@ def usuario_put_id(id_usuario):
         cur.close()
         return jsonify({
             "message": "Este email pertence a outra pessoa"
-        }), 400
+        }), 401
 
     cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
     if cur.fetchone():
         cur.close()
         return jsonify({
             "message": "Este telefone pertence a outra pessoa"
-        }), 400
+        }), 401
 
     # Atualizando as informações do usuário
     cur.execute(
@@ -1826,6 +1870,7 @@ def tem_permissao_adm():
         return jsonify({'mensagem': 'Token inválido'}), 401
 
     id_logado = payload["id_usuario"]
+    con = conectar_no_banco()
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
     admin = cur.fetchone()
