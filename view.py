@@ -81,6 +81,67 @@ def informar_verificacao(tipo=0, trazer_pl=False):
         return None
 
 
+def buscar_livro_por_id(id):
+    cur = con.cursor()
+    cur.execute("""
+        SELECT 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        WHERE a.id_livro = ?
+    """, (id,))
+
+    livro = cur.fetchone()
+
+    if not livro:
+        return None  # Retorna None se o livro não for encontrado
+
+    cur.execute("""
+        SELECT t.id_tag, t.nome_tag
+        FROM LIVRO_TAGS lt
+        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+        WHERE lt.ID_LIVRO = ?
+    """, (id,))
+
+    tags = cur.fetchall()
+    selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    valor_total = cur.fetchone()
+    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    qtd = cur.fetchone()
+
+    if valor_total and qtd and qtd[0] != 0:
+        avaliacoes = round((valor_total[0] / qtd[0]), 2)
+    else:
+        avaliacoes = 0.00
+
+    cur.close()
+
+    return {
+        "id": livro[0],
+        "titulo": livro[1],
+        "autor": livro[2],
+        "categoria": livro[3],
+        "isbn": livro[4],
+        "qtd_disponivel": livro[5],
+        "descricao": livro[6],
+        "idiomas": livro[7],
+        "ano_publicado": livro[8],
+        "imagem": f"{livro[0]}.jpeg",
+        "selectedTags": selected_tags,
+        "avaliacao": avaliacoes
+    }
+
+
+
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
 def verificar(tipo):
     if tipo:
@@ -1354,6 +1415,14 @@ def avaliar_livro(id):
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
+    livro = buscar_livro_por_id(id)
+    if not livro:
+        return jsonify({"error": "Livro não encontrado"}), 404
+    return jsonify(livro)
+
+
+@app.route('/relatorio/livros', methods=['GET'])
+def gerar_relatorio_livros():
     
     cur = con.cursor()
     cur.execute("""
@@ -1368,73 +1437,10 @@ def get_livros_id(id):
             a.idiomas, 
             a.ANO_PUBLICADO
         FROM ACERVO a
-        WHERE a.id_livro = ?
-    """, (id,))
-
-    livro = cur.fetchone()
-
-    cur.execute("""
-            SELECT t.id_tag, t.nome_tag
-            FROM LIVRO_TAGS lt
-            LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
-            WHERE lt.ID_LIVRO = ?
-        """, (id,))
-
-    tags = cur.fetchall()
-
-    selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
-
-    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    valor_total = cur.fetchone()[0]
-    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    qtd = cur.fetchone()[0]
-    print(f'\nvalor_total: {valor_total}, qtd: {qtd}\n')
-    if qtd != 0:
-        avaliacoes = round((valor_total / qtd), 2)
-    else:
-        avaliacoes = 0.00
-
-    cur.close()
-
-    if not livro:  # Se o livro não existir, retorna erro 404
-        return jsonify({"error": "Livro não encontrado"}), 404
-
-    return jsonify({
-        "id": livro[0],
-        "titulo": livro[1],
-        "autor": livro[2],
-        "categoria": livro[3],
-        "isbn": livro[4],
-        "qtd_disponivel": livro[5],
-        "descricao": livro[6],
-        "idiomas": livro[7],
-        "ano_publicado": livro[8],
-        "imagem": f"{livro[0]}.jpeg",
-        "selectedTags": selected_tags,
-        "avaliacao": avaliacoes
-    })
-
-
-@app.route('/relatorio/livros', methods=['GET'])
-def gerar_relatorio_livros():
-    
-    cursor = con.cursor()
-    cursor.execute("""
-        SELECT 
-            a.id_livro, 
-            a.titulo, 
-            a.autor, 
-            a.CATEGORIA, 
-            a.ISBN, 
-            a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
-            a.idiomas, 
-            a.ANO_PUBLICADO
-        FROM ACERVO a
         ORDER BY a.id_livro;
     """)
-    livros = cursor.fetchall()
-    cursor.close()
+    livros = cur.fetchall()
+    cur.close()
 
     contador_livros = len(livros)  # Definir o contador de livros antes do loop
 
@@ -1469,8 +1475,8 @@ def gerar_relatorio_livros():
 @app.route('/relatorio/usuarios', methods=['GET'])
 def gerar_relatorio_usuarios():
     
-    cursor = con.cursor()
-    cursor.execute("""
+    cur = con.cursor()
+    cur.execute("""
         SELECT
             id_usuario, 
             nome, 
@@ -1480,8 +1486,8 @@ def gerar_relatorio_usuarios():
         FROM USUARIOS
         ORDER BY id_usuario;
     """)
-    usuarios = cursor.fetchall()
-    cursor.close()
+    usuarios = cur.fetchall()
+    cur.close()
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -1879,3 +1885,224 @@ def tem_permissao_adm():
         return jsonify({'mensagem': 'Nível Administrador requerido'}), 401
     cur.close()
     return jsonify({"message": "deu certo"}), 200
+
+# Adicionar item ao carrinho de reservas
+@app.route('/carrinho_reservas', methods=['POST'])
+def adicionar_carrinho_reserva():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+
+    data = request.json
+    id_livro = data.get("id_livro")
+
+    
+    cur = con.cursor()
+    cur.execute("INSERT INTO CARRINHO_RESERVAS (ID_USUARIO, ID_LIVRO) VALUES (?, ?)", (id_usuario, id_livro))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Item adicionado ao carrinho de reservas"}), 201
+
+# Remover ‘item’ do carrinho de reservas
+@app.route('/carrinho_reservas/<int:item_id>', methods=['DELETE'])
+def remover_carrinho_reserva(item_id):
+    cur = con.cursor()
+    cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_ITEM = ?", (item_id,))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Item removido do carrinho de reservas"})
+
+# Listar itens do carrinho de reservas
+@app.route('/carrinho_reservas', methods=['GET'])
+def listar_carrinho_reserva():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id_usuario = payload["id_usuario"]
+
+    query = """
+        SELECT id_item, id_usuario, id_livro, data_adicionado 
+        FROM CARRINHO_reservas
+        WHERE id_usuario = ? 
+        ORDER BY data_adicionado DESC;
+    """
+
+    cur = con.cursor()
+    cur.execute(query, (id_usuario,))
+    catchReservas = cur.fetchall()
+    cur.close()
+
+    listaReservas = []
+
+    for e in catchReservas:
+        id_livro = e[2]
+        livro = buscar_livro_por_id(id_livro)  # Obtém os detalhes do livro
+
+        reserva = {
+            'id_reserva': e[0],
+            'id_usuario': e[1],
+            'id_livro': e[2],
+            'data_adicionado': e[3],
+            'imagem': f"{e[2]}.jpeg",
+            'livro': livro  # Adiciona os detalhes do livro ao carrinho
+        }
+
+        listaReservas.append(reserva)
+
+    return jsonify(listaReservas), 200
+
+
+# Verificar disponibilidade para reserva
+@app.route('/verificar_emprestimo/<int:livro_id>', methods=['GET'])
+def verificar_emprestimo(livro_id):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT QTD_DISPONIVEL, 
+            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_reservas,
+            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
+        FROM ACERVO 
+        WHERE ID_LIVRO = ?
+    """, (livro_id, livro_id, livro_id))
+    livro = cur.fetchone()
+    cur.close()
+
+    if livro and (livro[0] > (livro[1] + livro[2])):
+        return jsonify({"disponivel": True})
+    return jsonify({"disponivel": False})
+
+# Confirmar reserva
+@app.route('/reservar', methods=['POST'])
+def confirmar_reserva():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+
+    data = request.json
+    cur = con.cursor()
+
+    cur.execute("""
+        INSERT INTO RESERVAS (ID_USUARIO, DATA_VALIDADE)
+        VALUES (?, ?)
+        RETURNING ID_RESERVA;
+    """, (id_usuario, data['DATA_VALIDADE']))
+
+    reserva_id = cur.fetchone()[0]  # A primeira coluna retornada é o ID_RESERVA
+
+    cur.execute("""
+        INSERT INTO ITENS_RESERVA (ID_RESERVA, ID_LIVRO)
+        SELECT ?, ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?;
+    """, (reserva_id, id_usuario))
+
+    cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
+
+    con.commit()
+    cur.close()
+
+    return jsonify({"message": "Reserva confirmada", "id_reserva": reserva_id})
+
+
+# Adicionar item ao carrinho de empréstimos
+@app.route('/carrinho_emprestimos', methods=['POST'])
+def adicionar_carrinho_emprestimo():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+    data = request.json
+    id_livro = data.get("id_livro")
+
+    cur = con.cursor()
+    cur.execute("INSERT INTO CARRINHO_EMPRESTIMOS (ID_USUARIO, ID_LIVRO) VALUES (?, ?)", (id_usuario, id_livro))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Item adicionado ao carrinho de empréstimos"}), 201
+
+
+# Remover item do carrinho de empréstimos
+@app.route('/carrinho_emprestimos/<int:item_id>', methods=['DELETE'])
+def remover_carrinho_emprestimo(item_id):
+    cur = con.cursor()
+    cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_ITEM = ?", (item_id,))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Item removido do carrinho de empréstimos"})
+
+
+# Listar itens do carrinho de empréstimos
+@app.route('/carrinho_emprestimos', methods=['GET'])
+def listar_carrinho_emprestimo():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id_usuario = payload["id_usuario"]
+
+    query = """
+        SELECT id_item, id_usuario, id_livro, data_adicionado 
+        FROM CARRINHO_EMPRESTIMOS 
+        WHERE id_usuario = ? 
+        ORDER BY data_adicionado DESC;
+    """
+
+    cur = con.cursor()
+    cur.execute(query, (id_usuario,))
+    catchEmprestimos = cur.fetchall()
+    cur.close()
+
+    listaEmprestimos = []
+
+    for e in catchEmprestimos:
+        id_livro = e[2]
+        livro = buscar_livro_por_id(id_livro)  # Obtém os detalhes do livro
+
+        emprestimo = {
+            'id_emprestimo': e[0],
+            'id_usuario': e[1],
+            'id_livro': e[2],
+            'data_adicionado': e[3],
+            'imagem': f"{e[2]}.jpeg",
+            'livro': livro  # Adiciona os detalhes do livro ao carrinho
+        }
+
+        listaEmprestimos.append(emprestimo)
+
+    return jsonify(listaEmprestimos), 200
+
+
+# Confirmar empréstimo
+@app.route('/emprestar', methods=['POST'])
+def confirmar_emprestimo():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+    data = request.json
+
+    cur = con.cursor()
+    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?)",
+                (id_usuario, data['DATA_DEVOLVER']))
+    emprestimo_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO ITENS_EMPRESTIMO (ID_EMPRESTIMO, ID_LIVRO) SELECT ?, ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?",
+        (emprestimo_id, id_usuario))
+    cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Empréstimo confirmado"})
