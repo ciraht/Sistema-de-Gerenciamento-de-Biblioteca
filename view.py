@@ -1694,9 +1694,9 @@ def puxar_historico():
     payload = informar_verificacao(trazer_pl=True)
     id_logado = payload["id_usuario"]
 
-    
     cur = con.cursor()
 
+    # Emprestimos Ativos
     cur.execute("""
             SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
             FROM ITENS_EMPRESTIMO I
@@ -1707,6 +1707,7 @@ def puxar_historico():
         """, (id_logado,))
     emprestimos_ativos = cur.fetchall()
 
+    # Emprestimos Concluídos
     cur.execute("""
             SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
             FROM ITENS_EMPRESTIMO I
@@ -1717,19 +1718,22 @@ def puxar_historico():
         """, (id_logado,))
     emprestimos_concluidos = cur.fetchall()
 
+    # Reservas Ativas - Obtendo os livros relacionados às reservas
     cur.execute("""
-            SELECT R.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_RESERVADO, R.DATA_VALIDADE
-            FROM RESERVAS R
-            JOIN ACERVO A ON R.ID_LIVRO = A.ID_LIVRO
-            WHERE R.ID_USUARIO = ? 
+            SELECT IR.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+            FROM ITENS_RESERVA IR
+            JOIN RESERVAS R ON IR.ID_RESERVA = R.ID_RESERVA
+            JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+            WHERE R.ID_USUARIO = ?
             ORDER BY R.DATA_VALIDADE ASC
         """, (id_logado,))
     reservas_ativas = cur.fetchall()
 
+    # Multas Pendentes
     cur.execute("""
-            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO, M.PAGO
             FROM MULTAS M
-            WHERE M.ID_USUARIO = ?
+            WHERE M.ID_USUARIO = ? AND M.PAGO = 0
             ORDER BY TOTAL DESC
         """, (id_logado,))
     multas_pendentes = cur.fetchall()
@@ -1746,12 +1750,12 @@ def puxar_historico():
             for e in emprestimos_concluidos
         ],
         "reservas_ativas": [
-            {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_reservado": r[4],
-             "data_validade": r[5]}
+            {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_criacao": r[4],
+             "data_validade": r[5], "status": r[6]}
             for r in reservas_ativas
         ],
         "multas_pendentes": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4]}
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4], "pago": m[5]}
             for m in multas_pendentes
         ]
     }
@@ -1759,6 +1763,7 @@ def puxar_historico():
     cur.close()
 
     return jsonify(historico)
+
 
 
 @app.route('/editar_usuario/<int:id_usuario>', methods=["PUT"])
