@@ -9,6 +9,13 @@ from fpdf import FPDF
 
 senha_secreta = app.config['SECRET_KEY']
 
+PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
+
+def devolucao():
+    """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
+    data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
+    return data_devolucao.strftime("%Y-%m-%d")
+
 # Funções relacionadas a Tokens
 def generate_token(user_id):
     payload = {
@@ -1989,14 +1996,14 @@ def confirmar_reserva():
 
     id_usuario = payload["id_usuario"]
 
-    data = request.json
     cur = con.cursor()
 
     cur.execute("""
-        INSERT INTO RESERVAS (ID_USUARIO, DATA_VALIDADE)
-        VALUES (?, ?)
+        INSERT INTO RESERVAS (ID_USUARIO)
+        VALUES (?)
         RETURNING ID_RESERVA;
-    """, (id_usuario, data['DATA_VALIDADE']))
+    """, (id_usuario,))
+
 
     reserva_id = cur.fetchone()[0]  # A primeira coluna retornada é o ID_RESERVA
 
@@ -2093,16 +2100,21 @@ def confirmar_emprestimo():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
-    data = request.json
+
+    data_devolver = devolucao()
 
     cur = con.cursor()
-    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?)",
-                (id_usuario, data['DATA_DEVOLVER']))
-    emprestimo_id = cur.lastrowid
-    cur.execute(
-        "INSERT INTO ITENS_EMPRESTIMO (ID_EMPRESTIMO, ID_LIVRO) SELECT ?, ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?",
+    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?) returning id_emprestimo",
+                (id_usuario, data_devolver))
+    emprestimo_id = cur.fetchone()[0]
+    cur.execute("""
+        INSERT INTO ITENS_EMPRESTIMO (ID_EMPRESTIMO, ID_LIVRO) 
+        SELECT ?, ID_LIVRO 
+        FROM CARRINHO_EMPRESTIMOS 
+        WHERE ID_USUARIO = ?
+    """,
         (emprestimo_id, id_usuario))
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
     cur.close()
-    return jsonify({"message": "Empréstimo confirmado"})
+    return jsonify({"message": "Empréstimo confirmado", "data_devolver": data_devolver})
