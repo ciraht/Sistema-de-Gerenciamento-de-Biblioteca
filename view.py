@@ -1,26 +1,30 @@
 import os
 import jwt
+import threading
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
 import config
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
+from flask_mail import Mail, Message
 from fpdf import FPDF
 
 senha_secreta = app.config['SECRET_KEY']
 
 PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
 
+
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
     data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
     return data_devolucao.strftime("%Y-%m-%d")
 
+
 # Funções relacionadas a Tokens
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
-        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=45)
+        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=48)
     }
     token = jwt.encode(payload, senha_secreta, algorithm='HS256')
     return token
@@ -72,7 +76,6 @@ def verificar_user(tipo, trazer_pl):
 
 def informar_verificacao(tipo=0, trazer_pl=False):
     verificacao = verificar_user(tipo, trazer_pl)
-    print(verificacao)
     if verificacao == 1:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
     elif verificacao == 2:
@@ -89,6 +92,7 @@ def informar_verificacao(tipo=0, trazer_pl=False):
         return None
 
 
+# Funções relacionadas a livros
 def buscar_livro_por_id(id):
     cur = con.cursor()
     cur.execute("""
@@ -148,6 +152,47 @@ def buscar_livro_por_id(id):
         "avaliacao": avaliacoes
     }
 
+
+# Inicializando o Flask-Mail
+mail = Mail(app)
+
+
+def enviar_email_async(destinatario, assunto, corpo):
+    def enviar_email():
+        with app.app_context():
+            print(destinatario, assunto, corpo)
+            msg = Message(assunto, recipients=[destinatario])
+            msg.body = corpo
+            # Definindo o cabeçalho Reply-To para o endereço noreply
+            msg.reply_to = 'noreply@dominio.com'  # Não aceitar respostas
+
+            try:
+                mail.send(msg)
+            except Exception as e:
+                print(e)
+    # Criando uma thread para enviar o email em segundo plano
+    thread = threading.Thread(target=enviar_email)
+    thread.start()
+
+
+# Rota para testes
+"""
+@app.route('/enviar_emails', methods=['GET'])
+def enviar_emails():
+    cur = con.cursor()
+    cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'dimitric2007@gmail.com'")
+    usuario = cur.fetchone()
+
+    # Enviar e-mail para todos os usuários ativos
+    nome = usuario[1]
+    email = usuario[2]
+    print(f"Nome: {nome}, email: {email}")
+    assunto = 'Olá, ' + nome
+    corpo = f'Olá {nome},\n\nEste é um e-mail de exemplo enviado via Flask.'
+    enviar_email_async(email, assunto, corpo)
+
+    return jsonify({"message": "E-mails enviados com sucesso!"})
+"""
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -1134,7 +1179,6 @@ def reservar_livros():
     if not all([id_leitor, id_livro]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    
     cur = con.cursor()
 
     # Checando se o livro existe
@@ -2021,14 +2065,11 @@ def confirmar_reserva():
     if not cur.fetchone():
         return jsonify({"message": "Não há livros no carrinho"}), 404
 
-    cur.execute("""
-        INSERT INTO RESERVAS (ID_USUARIO)
-        VALUES (?)
-        RETURNING ID_RESERVA;
-    """, (id_usuario,))
-
+    print(id_usuario)
+    cur.execute("INSERT INTO RESERVAS (ID_USUARIO) VALUES (?) RETURNING ID_RESERVA;", (id_usuario,))
 
     reserva_id = cur.fetchone()[0]
+    print(reserva_id)
 
     cur.execute("""
         INSERT INTO ITENS_RESERVA (ID_RESERVA, ID_LIVRO)
@@ -2036,6 +2077,16 @@ def confirmar_reserva():
     """, (reserva_id, id_usuario))
 
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
+
+    # Enviar o email da reserva feita para o usuário
+    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario))
+    usuario = cur.fetchone()
+    nome = usuario[1]
+    email = usuario[2]
+    print(f"Nome: {nome}, email: {email}")
+    assunto = nome + ", Uma nota de reserva"
+    corpo = f'Olá {nome},\n\nSua reserva foi feita com sucesso!.'
+    enviar_email_async(email, assunto, corpo)
 
     con.commit()
     cur.close()
