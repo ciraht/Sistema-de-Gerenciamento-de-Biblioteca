@@ -562,6 +562,12 @@ def usuario_put():
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
         imagem.save(imagem_path)
+    else:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        if os.path.exists(imagem_path):
+            os.remove(imagem_path)
 
     cur.close()
     return jsonify({"message": "Usuário atualizado com sucesso"}), 200
