@@ -2079,17 +2079,19 @@ def confirmar_reserva():
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
 
     # Enviar o email da reserva feita para o usuário
-    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario))
+    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     usuario = cur.fetchone()
-    nome = usuario[1]
-    email = usuario[2]
+    nome = usuario[0]
+    email = usuario[1]
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
     corpo = f'Olá {nome},\n\nSua reserva foi feita com sucesso!.'
-    enviar_email_async(email, assunto, corpo)
 
     con.commit()
     cur.close()
+
+    enviar_email_async(email, assunto, corpo)
+
 
     return jsonify({"message": "Reserva confirmada", "id_reserva": reserva_id})
 
