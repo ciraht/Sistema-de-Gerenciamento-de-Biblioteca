@@ -1968,6 +1968,11 @@ def adicionar_carrinho_reserva():
 
     
     cur = con.cursor()
+
+    cur.execute("SELECT 1 from carrinho_reservas where id_livro = ?", (id_livro,))
+    if cur.fetchone():
+        return jsonify({"message": "Você não pode colocar 2 livros iguais no carrinho"}), 401
+
     cur.execute("INSERT INTO CARRINHO_RESERVAS (ID_USUARIO, ID_LIVRO) VALUES (?, ?)", (id_usuario, id_livro))
     con.commit()
     cur.close()
@@ -2042,7 +2047,7 @@ def verificar_reserva(livro_id):
     livro = cur.fetchone()
     cur.close()
 
-    if livro and (livro[0] >= livro[2] and livro[0] > livro[1] ):
+    if livro and (livro[2] >= livro[0] > livro[1]):
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
@@ -2108,7 +2113,12 @@ def adicionar_carrinho_emprestimo():
     data = request.json
     id_livro = data.get("id_livro")
 
+
     cur = con.cursor()
+    cur.execute("SELECT 1 from carrinho_emprestimos where id_livro = ?", (id_livro,))
+    if cur.fetchone():
+        return jsonify({"message": "Você não pode colocar 2 livros iguais no carrinho"}), 401
+
     cur.execute("INSERT INTO CARRINHO_EMPRESTIMOS (ID_USUARIO, ID_LIVRO) VALUES (?, ?)", (id_usuario, id_livro))
     con.commit()
     cur.close()
