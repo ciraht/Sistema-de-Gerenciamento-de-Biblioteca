@@ -72,6 +72,7 @@ def verificar_user(tipo, trazer_pl):
 
 def informar_verificacao(tipo=0, trazer_pl=False):
     verificacao = verificar_user(tipo, trazer_pl)
+    print(verificacao)
     if verificacao == 1:
         return jsonify({'mensagem': 'Token de autenticação necessário'}), 401
     elif verificacao == 2:
@@ -1422,6 +1423,10 @@ def avaliar_livro(id):
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
     livro = buscar_livro_por_id(id)
     if not livro:
         return jsonify({"error": "Livro não encontrado"}), 404
@@ -1970,8 +1975,8 @@ def listar_carrinho_reserva():
 
 
 # Verificar disponibilidade para reserva
-@app.route('/verificar_emprestimo/<int:livro_id>', methods=['GET'])
-def verificar_emprestimo(livro_id):
+@app.route('/verificar_reserva/<int:livro_id>', methods=['GET'])
+def verificar_reserva(livro_id):
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
@@ -1979,7 +1984,7 @@ def verificar_emprestimo(livro_id):
     cur = con.cursor()
     cur.execute("""
         SELECT QTD_DISPONIVEL, 
-            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_reservas,
+            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('Pendente', 'CONFIRMADA')) AS total_reservas,
             (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
@@ -1987,7 +1992,7 @@ def verificar_emprestimo(livro_id):
     livro = cur.fetchone()
     cur.close()
 
-    if livro and (livro[0] > (livro[1] + livro[2])):
+    if livro and (livro[0] >= livro[2] and livro[0] > livro[1] ):
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
@@ -2004,13 +2009,20 @@ def confirmar_reserva():
     cur = con.cursor()
 
     cur.execute("""
+        SELECT ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?
+    """, (id_usuario,))
+
+    if not cur.fetchone():
+        return jsonify({"message": "Não há livros no carrinho"}), 404
+
+    cur.execute("""
         INSERT INTO RESERVAS (ID_USUARIO)
         VALUES (?)
         RETURNING ID_RESERVA;
     """, (id_usuario,))
 
 
-    reserva_id = cur.fetchone()[0]  # A primeira coluna retornada é o ID_RESERVA
+    reserva_id = cur.fetchone()[0]
 
     cur.execute("""
         INSERT INTO ITENS_RESERVA (ID_RESERVA, ID_LIVRO)
@@ -2096,6 +2108,28 @@ def listar_carrinho_emprestimo():
     return jsonify(listaEmprestimos), 200
 
 
+# Verificar disponibilidade para emprestimo
+@app.route('/verificar_emprestimo/<int:livro_id>', methods=['GET'])
+def verificar_emprestimo(livro_id):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT QTD_DISPONIVEL, 
+            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
+        FROM ACERVO 
+        WHERE ID_LIVRO = ?
+    """, (livro_id, livro_id, livro_id))
+    livro = cur.fetchone()
+    cur.close()
+
+    if livro and (livro[0] > livro[1]):
+        return jsonify({"disponivel": True})
+    return jsonify({"disponivel": False})
+
+
 # Confirmar empréstimo
 @app.route('/emprestar', methods=['POST'])
 def confirmar_emprestimo():
@@ -2109,6 +2143,14 @@ def confirmar_emprestimo():
     data_devolver = devolucao()
 
     cur = con.cursor()
+
+    cur.execute("""
+            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
+        """, (id_usuario,))
+
+    if not cur.fetchone():
+        return jsonify({"message": "Não há livros no carrinho"}), 404
+
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?) returning id_emprestimo",
                 (id_usuario, data_devolver))
     emprestimo_id = cur.fetchone()[0]
