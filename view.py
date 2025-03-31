@@ -456,7 +456,6 @@ def reativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
-    
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -491,7 +490,6 @@ def inativar_usuario():
     data = request.get_json()
     id_usuario = data.get("id")
 
-    
     cur = con.cursor()
     # Checar se existe
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -792,7 +790,6 @@ def adicionar_livros():
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
-    
     cur = con.cursor()
 
     # Verificando se a ISBN já está cadastrada
@@ -877,7 +874,6 @@ def editar_livro(id_livro):
 
     data = request.form
 
-    
     cur = con.cursor()
     cur.execute("SELECT titulo, autor, categoria, isbn, qtd_disponivel, descricao FROM acervo WHERE id_livro = ?",
                 (id_livro,))
@@ -973,7 +969,7 @@ def livro_delete():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     biblio = cur.fetchone()
@@ -998,14 +994,43 @@ def livro_delete():
         cur.close()
         return jsonify({"error": "Livro não encontrado"}), 404
 
-    # Excluir registros relacionados ao livro
-    cur.execute("DELETE FROM LIVRO_TAGS WHERE ID_LIVRO = ?", (id_livro,))
-    cur.execute("DELETE FROM RESERVAS WHERE ID_LIVRO = ?", (id_livro,))
-    cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ?", (id_livro,))
-    cur.execute("DELETE FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
+    # Deleção de reservas
+    cur.execute('SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)', (id_livro,))
+    id_usuario = cur.fetchone()
+    print(f"Usuário que teve sua reserva deletada: {id_usuario}")
+
+    cur.execute("SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?", (id_livro,))
+    reservas_deletar = cur.fetchall()
+    reservas_deletar = [r[0] for r in reservas_deletar]  # Extrai apenas o valor do ID_RESERVA de cada tupla
+
+    if reservas_deletar:
+        placeholders = ', '.join('?' for _ in reservas_deletar)
+        query = f"DELETE FROM RESERVAS r WHERE r.ID_RESERVA IN ({placeholders})"
+        cur.execute(query, reservas_deletar)
+
+    # Enviar um email para o usuário que possuia reserva
+
+    # Deleção de empréstimos
+    cur.execute(
+        "SELECT ID_USUARIO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO' AND DATA_DEVOLVIDO IS NULL AND ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?)",
+        (id_livro,))
+    id_usuario = cur.fetchone()
+    print(f"Usuário que teve seu emprestimo deletado: {id_usuario}")
+
+    cur.execute("SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
+    emprestimos_deletar = cur.fetchall()
+    emprestimos_deletar = [r[0] for r in emprestimos_deletar]  # Extrai apenas o valor do ID_RESERVA de cada tupla
+
+    if emprestimos_deletar:
+        placeholders = ', '.join('?' for _ in emprestimos_deletar)
+        query = f"DELETE FROM EMPRESTIMOS ie WHERE ie.ID_EMPRESTIMO IN ({placeholders})"
+        cur.execute(query, emprestimos_deletar)
+
+    # Enviar um email para o usuário que teve seu empréstimo comprometido
+
+    # E finalmente, da lista de livros
     cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
 
-    
     con.commit()
     cur.close()
 
@@ -1021,7 +1046,8 @@ def livro_delete():
             os.remove(caminho_imagem)
             break
 
-    return jsonify({'message': "Livro excluído com sucesso!"})
+    return jsonify({'message': "Livro excluído com sucesso!"}), 200
+
 
 
 @app.route('/emprestimo_livros', methods=["POST"])
@@ -1381,7 +1407,6 @@ def pesquisar():
     if not pesquisa:
         return jsonify({"message": "Nada pesquisado"})
 
-    
     cur = con.cursor()
 
     # Pesquisando texto
@@ -1583,7 +1608,6 @@ def gerar_relatorio_usuarios():
 def get_user_id(id):
     print(f"Recebido ID: {id}")  # Verifique se o ID é recebido corretamente
 
-    
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -1697,7 +1721,6 @@ def trocar_tipo(id):
     if verificacao:
         return verificacao
 
-    
     cur = con.cursor()
 
     data = request.get_json()
@@ -1820,14 +1843,12 @@ def puxar_historico():
     return jsonify(historico)
 
 
-
 @app.route('/editar_usuario/<int:id_usuario>', methods=["PUT"])
 def usuario_put_id(id_usuario):
     verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
 
-    
     cur = con.cursor()
 
     # Verificar se o usuário existe
@@ -1953,6 +1974,8 @@ def tem_permissao_adm():
     cur.close()
     return jsonify({"message": "deu certo"}), 200
 
+
+
 # Adicionar item ao carrinho de reservas
 @app.route('/carrinho_reservas', methods=['POST'])
 def adicionar_carrinho_reserva():
@@ -1978,6 +2001,7 @@ def adicionar_carrinho_reserva():
     cur.close()
     return jsonify({"message": "Item adicionado ao carrinho de reservas"}), 201
 
+
 # Remover ‘item’ do carrinho de reservas
 @app.route('/carrinho_reservas/<int:item_id>', methods=['DELETE'])
 def remover_carrinho_reserva(item_id):
@@ -1988,6 +2012,8 @@ def remover_carrinho_reserva(item_id):
     return jsonify({"message": "Item removido do carrinho de reservas"})
 
 # Listar itens do carrinho de reservas
+
+
 @app.route('/carrinho_reservas', methods=['GET'])
 def listar_carrinho_reserva():
     verificacao = informar_verificacao()
@@ -2051,6 +2077,7 @@ def verificar_reserva(livro_id):
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
+
 # Confirmar reserva
 @app.route('/reservar', methods=['POST'])
 def confirmar_reserva():
@@ -2096,7 +2123,6 @@ def confirmar_reserva():
     cur.close()
 
     enviar_email_async(email, assunto, corpo)
-
 
     return jsonify({"message": "Reserva confirmada", "id_reserva": reserva_id})
 
