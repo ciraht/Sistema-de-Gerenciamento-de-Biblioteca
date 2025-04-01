@@ -1692,19 +1692,26 @@ def gerar_relatorio_livros():
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
     pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
     pdf.set_font("Arial", size=12)
 
-    for livro in livros:
-        pdf.multi_cell(200, 10,
-                       f"ID: {livro[0]} Titulo: {livro[1]} Autor: {livro[2]} Categoria: {livro[3]} ISBN: {livro[4]} Quantidade Disponível: {livro[5]} Descrição: {livro[6]} Idiomas: {livro[7]} Ano Publicado: {livro[8]}")
-        pdf.ln(5)
+    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Disponível", "Descrição", "Idiomas",
+                  "Ano Publicado"]
 
-    pdf.ln(5)  # Espaço antes do contador
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+    for livro in livros:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(50, 5, f"{livro[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
 
     pdf_path = "relatorio_livros.pdf"
     pdf.output(pdf_path)
@@ -1712,6 +1719,7 @@ def gerar_relatorio_livros():
     try:
         return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
     except Exception as e:
+        print(e)
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 
@@ -1731,26 +1739,32 @@ def gerar_relatorio_usuarios():
     """)
     usuarios = cur.fetchall()
     cur.close()
+    contador_usuarios = len(usuarios)
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de usuarios", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de usuários", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de usuários cadastrados: {contador_usuarios}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
     pdf.set_font("Arial", size=12)
 
-    for usuario in usuarios:
-        pdf.multi_cell(200, 10,
-                       f"ID: {usuario[0]} - Nome: {usuario[1]} - Email: {usuario[2]} - Telefone: {usuario[3]} - Endereço: {usuario[4]}")
-        pdf.ln(5)
+    subtitulos = ["ID", "Nome", "E-mail", "Telefone", "Endereço"]
 
-    contador_usuarios = len(usuarios)
-    pdf.ln(5)  # Espaço antes do contador
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 10, f"Total de usuarios cadastrados: {contador_usuarios}", ln=True, align='C')
+    for usuario in usuarios:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(50, 5, f"{usuario[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
 
     pdf_path = "relatorio_usuarios.pdf"
     pdf.output(pdf_path)
