@@ -51,7 +51,7 @@ def verificar_user(tipo, trazer_pl):
         return 3  # Token inválido
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     if tipo == 2:
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
@@ -170,6 +170,7 @@ def enviar_email_async(destinatario, assunto, corpo):
                 mail.send(msg)
             except Exception as e:
                 print(e)
+
     # Criando uma thread para enviar o email em segundo plano
     thread = threading.Thread(target=enviar_email)
     thread.start()
@@ -373,7 +374,7 @@ def logar():
     email = email.lower()
 
     print(email, senha)
-    
+
     cur = con.cursor()
 
     # Checando se a senha está correta
@@ -543,7 +544,7 @@ def usuario_put():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
     usuario_data = cur.fetchone()
@@ -640,7 +641,6 @@ def deletar_usuario():
     if verificacao:
         return verificacao
 
-    
     cur = con.cursor()
 
     data = request.get_json()
@@ -785,7 +785,6 @@ def excluir_imagem(id_usuario):
 
 @app.route('/livros', methods=["GET"])
 def get_livros():
-    
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -874,7 +873,6 @@ def adicionar_livros():
         cur.close()
         return jsonify({"error": "Ano publicado deve ser condizente com a data atual."}), 401
 
-
     # Verificações de idioma
     lista_idiomas = ["Português", "Inglês", "Espanhol", "Francês"]
     if idiomas not in lista_idiomas:
@@ -957,7 +955,7 @@ def editar_livro(id_livro):
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)",
                 (id_logado,))
@@ -1106,7 +1104,9 @@ def livro_delete():
         return jsonify({"error": "Livro não encontrado."}), 404
 
     # Deleção de reservas
-    cur.execute('SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)', (id_livro,))
+    cur.execute(
+        'SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)',
+        (id_livro,))
     id_usuario = cur.fetchone()
     print(f"Usuário que teve sua reserva deletada: {id_usuario}")
 
@@ -1177,84 +1177,6 @@ def livro_delete():
     return jsonify({'message': "Livro excluído com sucesso!"}), 200
 
 
-@app.route('/emprestimo_livros', methods=["POST"])
-def emprestar_livros():
-    verificacao = informar_verificacao()
-    if verificacao:
-        return verificacao
-
-    data = request.get_json()
-    conjunto_livros = data.get('livros', [])
-    id_leitor = data.get('id_usuario')
-
-    # Checando se todos os dados foram preenchidos
-    if not all([id_leitor, conjunto_livros]):
-        return jsonify({"message": "Todos os campos são obrigatórios."}), 401
-
-    cur = con.cursor()
-
-    # Checando se todos os livros existem
-    for livro in conjunto_livros:
-        id_livro = livro[0]
-        cur.execute("SELECT 1 from acervo where id_livro = ?", (id_livro,))
-        if not cur.fetchone():
-            cur.close()
-            return jsonify({"message": "Um dos livros selecionados não existe."})
-
-    # Checando se todos os lívros estão disponíveis
-    for livro in conjunto_livros:
-        cur.execute(
-            "SELECT QTD_DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?",
-            (livro[0],)
-        )
-        qtd_maxima = cur.fetchone()[0]
-        # livros de Itens_Emprestimo que possuem o id do livro e pertencem a um emprestimo sem devolução
-        cur.execute(
-            """SELECT count(ID_ITEM) FROM ITENS_EMPRESTIMO i WHERE
-             i.id_livro = ? AND i.ID_EMPRESTIMO IN 
-             (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.DATA_DEVOLVIDO IS NULL)""",
-            (livro[0],)
-        )
-        qtd_emprestada = cur.fetchone()[0]
-        livros_nao_emprestados = qtd_maxima - qtd_emprestada
-        if livros_nao_emprestados <= 0:
-            cur.close()
-            return jsonify({
-                "message": "Todos os exemplares disponíveis desse livro já estão emprestados."
-            })
-
-        # Contar as reservas do livro (que não são de quem está a receber o empréstimo)
-        # e comparar com a quantidade não emprestada
-        cur.execute(
-            """SELECT count(id_reserva) FROM RESERVAS r WHERE
-             r.id_livro = ? AND r.DATA_VALIDADE >= CURRENT_DATE AND r.ID_USUARIO <> ?""",
-            (livro[0], id_leitor)
-        )
-        livros_reservados = cur.fetchone()[0]
-        print(
-            f"\nlivros não emprestados: {livros_nao_emprestados}, livros reservados: {livros_reservados}, {livros_reservados >= livros_nao_emprestados}")
-        if livros_reservados >= livros_nao_emprestados:
-            cur.close()
-            return jsonify({
-                "message": "Os exemplares restantes de um dos livros já estão reservados."
-            })
-
-    cur.execute(
-        """INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_RETIRADA, DATA_DEVOLVER)
-          VALUES (?, CURRENT_DATE, DATEADD(DAY, 7, CURRENT_DATE)) RETURNING ID_EMPRESTIMO""",
-        (id_leitor,)
-    )
-    id_emprestimo = cur.fetchone()[0]
-    con.commit()
-
-    # Inserindo os registros individuais de cada livro e os ligando ao empréstimo
-    for livro in conjunto_livros:
-        cur.execute("INSERT INTO ITENS_EMPRESTIMO (ID_LIVRO, ID_EMPRESTIMO) VALUES (?, ?)", (livro[0], id_emprestimo,))
-    con.commit()
-    cur.close()
-    return jsonify({"message": "Empréstimo feito com sucesso."},200)
-
-
 @app.route('/devolver_emprestimo', methods=["PUT"])
 def devolver_emprestimo():
     verificacao = informar_verificacao()
@@ -1263,7 +1185,7 @@ def devolver_emprestimo():
 
     data = request.get_json()
     id_emprestimo = data.get("id_emprestimo")
-    
+
     cur = con.cursor()
 
     # Verificações
@@ -1300,7 +1222,7 @@ def renovar_emprestimo():
 
     if not all([dias, id_emprestimo]):
         return jsonify({"message": "Todos os campos são obrigatórios."}), 401
-    
+
     cur = con.cursor()
 
     # Verificar se o id existe e se já não foi devolvido o empréstimo
@@ -1382,7 +1304,7 @@ def enviar_imagem_livro():
     payload = informar_verificacao(trazer_pl=True)
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
     # print(f"cur.fetchone():{cur.fetchone()}, payload:{payload}")
@@ -1441,7 +1363,7 @@ def enviar_imagem_livro():
     ), 200
 
 
-@app.route('/cancelar_reserva', methods=["DELETE"])
+@app.route('/cancelar_reserva', methods=["PUT"])
 def deletar_reservas():
     verificacao = informar_verificacao()
     if verificacao:
@@ -1462,14 +1384,14 @@ def deletar_reservas():
         cur.close()
         return jsonify({"message": "A reserva selecionada não existe."})
 
-    # Excluir a Reserva
-    cur.execute("DELETE FROM reservas WHERE id_reserva = ?", (id_reserva,))
+    # Mudar o status da Reserva
+    cur.execute("UPDATE reservas SET STATUS = 'Cancelada' WHERE id_reserva = ?", (id_reserva,))
     con.commit()
     cur.close()
 
     return jsonify({
-        "message": "Reserva excluída com sucesso."
-    })
+        "message": "Reserva cancelada com sucesso."
+    }), 200
 
 
 @app.route('/pesquisa', methods=["POST"])
@@ -1528,7 +1450,6 @@ def pesquisar():
 
 @app.route('/tags', methods=["GET"])
 def get_tags():
-    
     cur = con.cursor()
     cur.execute("SELECT id_tag, nome_tag from tags")
     tags = [{'id': r[0], 'nome': r[1]} for r in cur.fetchall()]
@@ -1538,7 +1459,6 @@ def get_tags():
 
 @app.route('/tags/<int:id>', methods=["GET"])
 def get_tag(id):
-    
     cur = con.cursor()
     cur.execute("SELECT id_tag, id_livro from livro_tags where id_livro = ?", (id,))
     tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
@@ -1553,8 +1473,8 @@ def avaliar_livro(id):
         return verificacao
 
     data = request.get_json()
-    valor = data.get("valor")
-    
+    valor = data.get("valor")  # De 0 a 5
+
     cur = con.cursor()
     cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()[0]
@@ -1586,7 +1506,6 @@ def get_livros_id(id):
 
 @app.route('/relatorio/livros', methods=['GET'])
 def gerar_relatorio_livros():
-    
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -1645,7 +1564,6 @@ def gerar_relatorio_livros():
 
 @app.route('/relatorio/usuarios', methods=['GET'])
 def gerar_relatorio_usuarios():
-    
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -1734,6 +1652,10 @@ def get_user_id(id):
 
 @app.route('/usuarios', methods=["get"])
 def usuarios():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+
     usuarios = """
         SELECT
             id_usuario, 
@@ -1747,7 +1669,7 @@ def usuarios():
         FROM usuarios
         order by nome;
         """
-    
+
     cur = con.cursor()
     cur.execute(usuarios)
     catchUsuarios = cur.fetchall()
@@ -1842,7 +1764,7 @@ def tem_permissao():
         return jsonify({'mensagem': 'Token inválido.'}), 401
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
     bibli = cur.fetchone()
@@ -1923,7 +1845,8 @@ def puxar_historico():
             for r in reservas_ativas
         ],
         "multas_pendentes": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4], "pago": m[5]}
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4],
+             "pago": m[5]}
             for m in multas_pendentes
         ]
     }
@@ -2031,7 +1954,7 @@ def usuario_put_id(id_usuario):
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
         imagem.save(imagem_path)
-        print("oi\n\n\n\n")
+        # print("oi\n\n\n\n")
 
     # Commit das alterações
     con.commit()
@@ -2054,7 +1977,7 @@ def tem_permissao_adm():
         return jsonify({'mensagem': 'Token inválido.'}), 401
 
     id_logado = payload["id_usuario"]
-    
+
     cur = con.cursor()
     cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
     admin = cur.fetchone()
@@ -2078,7 +2001,6 @@ def adicionar_carrinho_reserva():
     data = request.json
     id_livro = data.get("id_livro")
 
-    
     cur = con.cursor()
 
     cur.execute("SELECT 1 from carrinho_reservas where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
@@ -2099,6 +2021,7 @@ def remover_carrinho_reserva(item_id):
     con.commit()
     cur.close()
     return jsonify({"message": "Item removido do carrinho de reservas."})
+
 
 # Listar itens do carrinho de reservas
 
@@ -2150,6 +2073,7 @@ def verificar_reserva(livro_id):
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+    payload = informar_verificacao(trazer_pl=True)
 
     cur = con.cursor()
     cur.execute("""
@@ -2160,9 +2084,16 @@ def verificar_reserva(livro_id):
         WHERE ID_LIVRO = ?
     """, (livro_id, livro_id, livro_id))
     livro = cur.fetchone()
+
+    # Verificar se o usuário já possui alguma reserva ativa do livro
+    cur.execute(
+        "SELECT 1 FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.ID_USUARIO = ?"
+        , (livro_id, payload["id_usuario"]))
+    ja_tem = True if cur.fetchone() else False
+    print(ja_tem)
     cur.close()
 
-    if livro and (livro[2] >= livro[0] > livro[1]):
+    if livro and (livro[2] >= livro[0] > livro[1]) and not ja_tem:
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
@@ -2201,7 +2132,7 @@ def confirmar_reserva():
             FROM EMPRESTIMOS E
             JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
             JOIN CARRINHO_RESERVAS CR ON I.ID_LIVRO = CR.ID_LIVRO AND E.ID_USUARIO = CR.ID_USUARIO
-            WHERE E.STATUS IN ('Pendente', 'Ativo') AND E.ID_USUARIO = ?;
+            WHERE E.STATUS IN ('ATIVO') AND E.ID_USUARIO = ?;
         """, (id_usuario,))
     if cur.fetchone():
         return jsonify({"message": "Você já tem esse livro emprestado."}), 401
@@ -2247,7 +2178,6 @@ def adicionar_carrinho_emprestimo():
     id_usuario = payload["id_usuario"]
     data = request.json
     id_livro = data.get("id_livro")
-
 
     cur = con.cursor()
     cur.execute("SELECT 1 from carrinho_emprestimos where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
@@ -2318,6 +2248,7 @@ def verificar_emprestimo(livro_id):
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+    payload = informar_verificacao(trazer_pl=True)
 
     cur = con.cursor()
     cur.execute("""
@@ -2325,11 +2256,16 @@ def verificar_emprestimo(livro_id):
             (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
-    """, (livro_id, livro_id, livro_id))
+    """, (livro_id, livro_id))
     livro = cur.fetchone()
-    cur.close()
 
-    if livro and (livro[0] > livro[1]):
+    # Verificar se o usuário já possui algum empréstimo ativo do livro
+    cur.execute("SELECT 1 FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO' AND E.ID_USUARIO = ?"
+                , (livro_id, payload["id_usuario"]))
+    ja_tem = True if cur.fetchone() else False
+
+    cur.close()
+    if livro and (livro[0] > livro[1]) and not ja_tem:
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
@@ -2374,7 +2310,7 @@ def confirmar_emprestimo():
         FROM CARRINHO_EMPRESTIMOS 
         WHERE ID_USUARIO = ?
     """,
-        (emprestimo_id, id_usuario))
+                (emprestimo_id, id_usuario))
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
     cur.close()
