@@ -2145,10 +2145,15 @@ def confirmar_reserva():
 
     cur.execute("""
         INSERT INTO ITENS_RESERVA (ID_RESERVA, ID_LIVRO)
-        SELECT ?, ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?;
+        SELECT ?, ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?
     """, (reserva_id, id_usuario))
+    cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA IR WHERE IR.ID_RESERVA IN (SELECT ID_RESERVA FROM RESERVAS R WHERE R.ID_USUARIO = ?)", (id_usuario,))
+    livros = cur.fetchall()
+    print(f"Livros reservados: {livros}")
 
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
+
+    # Pegar o nome e autor dos livros para usar no email
 
     # Enviar o email da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -2157,7 +2162,11 @@ def confirmar_reserva():
     email = usuario[1]
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
-    corpo = f'Olá {nome},\n\nSua reserva foi feita com sucesso!'
+    corpo = f"""
+    Olá {nome},\n\nSua reserva foi feita com sucesso!
+    Livros reservados:
+    • 
+    """
 
     con.commit()
     cur.close()
