@@ -2267,6 +2267,26 @@ def confirmar_reserva():
     if not cur.fetchone():
         return jsonify({"message": "Não há livros no carrinho"}), 404
 
+    cur.execute("""
+        SELECT 1 
+        FROM RESERVAS R
+        JOIN ITENS_RESERVA I ON R.ID_RESERVA = I.ID_RESERVA
+        JOIN CARRINHO_RESERVAS CR ON I.ID_LIVRO = CR.ID_LIVRO AND R.ID_USUARIO = CR.ID_USUARIO
+        WHERE R.STATUS IN ('Pendente', 'Ativo') AND r.ID_USUARIO = ?;
+    """, (id_usuario,))
+    if cur.fetchone():
+        return jsonify({"message": "Você já tem esse livro reservado"}), 401
+
+    cur.execute("""
+            SELECT 1 
+            FROM EMPRESTIMOS E
+            JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+            JOIN CARRINHO_RESERVAS CR ON I.ID_LIVRO = CR.ID_LIVRO AND E.ID_USUARIO = CR.ID_USUARIO
+            WHERE E.STATUS IN ('Pendente', 'Ativo') AND E.ID_USUARIO = ?;
+        """, (id_usuario,))
+    if cur.fetchone():
+        return jsonify({"message": "Você já tem esse livro emprestado"}), 401
+
     print(id_usuario)
     cur.execute("INSERT INTO RESERVAS (ID_USUARIO) VALUES (?) RETURNING ID_RESERVA;", (id_usuario,))
 
@@ -2415,6 +2435,16 @@ def confirmar_emprestimo():
 
     if not cur.fetchone():
         return jsonify({"message": "Não há livros no carrinho"}), 404
+
+    cur.execute("""
+                SELECT 1 
+                FROM EMPRESTIMOS E
+                JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+                JOIN CARRINHO_EMPRESTIMOS CE ON I.ID_LIVRO = CE.ID_LIVRO AND E.ID_USUARIO = CE.ID_USUARIO
+                WHERE E.STATUS IN ('Ativo') AND E.ID_USUARIO = ?;
+            """, (id_usuario,))
+    if cur.fetchone():
+        return jsonify({"message": "Você já tem esse livro emprestado"}), 401
 
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?) returning id_emprestimo",
                 (id_usuario, data_devolver))
