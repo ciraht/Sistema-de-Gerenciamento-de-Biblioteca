@@ -312,7 +312,25 @@ def cadastrar():
         cur.close()
 
         # Verificações de Imagem
-        imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+        imagens = [
+            ".jpeg",
+            ".jpg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".tiff",
+            ".webp",
+            ".heif",
+            ".raw",
+            ".svg",
+            ".eps",
+            ".pdf",
+            ".ico",
+            ".heic",
+            ".xcf",
+            ".psd"
+        ]
+
         if not os.path.exists(app.config['UPLOAD_FOLDER']):
             os.makedirs(app.config['UPLOAD_FOLDER'])
         if imagem:
@@ -651,7 +669,24 @@ def deletar_usuario():
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     valido = True
     ext_real = None
     for ext in imagens:
@@ -674,7 +709,24 @@ def excluir_imagem_adm(id_usuario):
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     valido = True
     ext_real = None
     for ext in imagens:
@@ -701,7 +753,24 @@ def excluir_imagem(id_usuario):
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
 
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     valido = True
     ext_real = None
     for ext in imagens:
@@ -833,7 +902,25 @@ def adicionar_livros():
     cur.close()
 
     # Verificações de Imagem
-    imagens = [".png", ".jpg", ".webp", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
+
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
@@ -844,7 +931,7 @@ def adicionar_livros():
         if not valido:
             return jsonify(
                 {
-                    "message": "Livro cadastrado com sucesso, mas o formato de imagem é inválido, edite o livro criado"
+                    "message": "Livro cadastrado com sucesso, mas o formato de imagem é inválido, você pode alterar editando seu perfil depois"
                 }
             ), 200
         nome_imagem = f"{livro_id}.jpeg"
@@ -938,7 +1025,25 @@ def editar_livro(id_livro):
     cur.close()
 
     # Verificações de Imagem
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
+
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
@@ -949,7 +1054,7 @@ def editar_livro(id_livro):
         if not valido:
             return jsonify(
                 {
-                    "message": "Livro editado com sucesso, mas o formato de imagem é inválido."
+                    "message": "Livro editado com sucesso, mas o formato de imagem é inválido, você pode alterar editando seu perfil depois"
                 }
             ), 200
         nome_imagem = f"{id_livro}.jpeg"
@@ -1039,7 +1144,24 @@ def livro_delete():
     if not os.path.exists(upload_folder):
         os.makedirs(upload_folder)
 
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     for ext in imagens:
         caminho_imagem = os.path.join(upload_folder, "Livros", f"{id_livro}{ext}")
         if os.path.exists(caminho_imagem):
@@ -1240,7 +1362,24 @@ def enviar_imagem_usuario():
     print(id_usuario)
 
     # Verificações de Imagem
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
@@ -1290,7 +1429,24 @@ def enviar_imagem_livro():
     print(id_livro)
 
     # Verificações de Imagem
-    imagens = [".png", ".jpg", ".WEBP", ".jpeg"]
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
@@ -2117,7 +2273,7 @@ def confirmar_reserva():
     email = usuario[1]
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
-    corpo = f'Olá {nome},\n\nSua reserva foi feita com sucesso!.'
+    corpo = f'Olá {nome},\n\nSua reserva foi feita com sucesso!'
 
     con.commit()
     cur.close()
