@@ -1556,7 +1556,7 @@ def gerar_relatorio_livros():
     pdf.output(pdf_path)
 
     try:
-        return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
     except Exception as e:
         print(e)
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
@@ -1607,7 +1607,7 @@ def gerar_relatorio_usuarios():
     pdf_path = "relatorio_usuarios.pdf"
     pdf.output(pdf_path)
     try:
-        return send_file(pdf_path, as_attachment=True, mimetype='application/pdf')
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
     except Exception as e:
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
@@ -2296,7 +2296,7 @@ def confirmar_emprestimo():
                 FROM EMPRESTIMOS E
                 JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
                 JOIN CARRINHO_EMPRESTIMOS CE ON I.ID_LIVRO = CE.ID_LIVRO AND E.ID_USUARIO = CE.ID_USUARIO
-                WHERE E.STATUS IN ('Ativo') AND E.ID_USUARIO = ?;
+                WHERE E.STATUS IN ('ATIVO') AND E.ID_USUARIO = ?;
             """, (id_usuario,))
     if cur.fetchone():
         return jsonify({"message": "Você já tem esse livro emprestado."}), 401
