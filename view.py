@@ -2081,7 +2081,7 @@ def adicionar_carrinho_reserva():
     
     cur = con.cursor()
 
-    cur.execute("SELECT 1 from carrinho_reservas where id_livro = ?", (id_livro,))
+    cur.execute("SELECT 1 from carrinho_reservas where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
     if cur.fetchone():
         return jsonify({"message": "Você não pode colocar 2 livros iguais no carrinho."}), 401
 
@@ -2250,7 +2250,7 @@ def adicionar_carrinho_emprestimo():
 
 
     cur = con.cursor()
-    cur.execute("SELECT 1 from carrinho_emprestimos where id_livro = ?", (id_livro,))
+    cur.execute("SELECT 1 from carrinho_emprestimos where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
     if cur.fetchone():
         return jsonify({"message": "Você não pode colocar 2 livros iguais no carrinho."}), 401
 
