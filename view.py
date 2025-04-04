@@ -20,7 +20,6 @@ def devolucao():
     return data_devolucao.strftime("%Y-%m-%d")
 
 
-# Funções relacionadas a Tokens
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
@@ -77,15 +76,15 @@ def verificar_user(tipo, trazer_pl):
 def informar_verificacao(tipo=0, trazer_pl=False):
     verificacao = verificar_user(tipo, trazer_pl)
     if verificacao == 1:
-        return jsonify({'mensagem': 'Token de autenticação necessário.'}), 401
+        return jsonify({'mensagem': 'Token de autenticação necessário.', "verificacao": verificacao}), 401
     elif verificacao == 2:
-        return jsonify({'mensagem': 'Token expirado.'}), 401
+        return jsonify({'mensagem': 'Token expirado.', "verificacao": verificacao}), 401
     elif verificacao == 3:
-        return jsonify({'mensagem': 'Token inválido.'}), 401
+        return jsonify({'mensagem': 'Token inválido.', "verificacao": verificacao}), 401
     elif verificacao == 4:
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido.'}), 401
+        return jsonify({'mensagem': 'Nível Bibliotecário requerido.', "verificacao": verificacao}), 401
     elif verificacao == 5:
-        return jsonify({'mensagem': 'Nível Administrador requerido.'}), 401
+        return jsonify({'mensagem': 'Nível Administrador requerido.', "verificacao": verificacao}), 401
     else:
         if trazer_pl:
             return verificacao
@@ -198,14 +197,12 @@ def enviar_emails():
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
 def verificar(tipo):
-    if tipo:
-        verificacao = informar_verificacao(tipo)
-    else:
-        verificacao = informar_verificacao()
+    verificacao = informar_verificacao(tipo)
 
-    if verificacao:
+    if verificacao is not None:
         return verificacao
 
+    return jsonify({'mensagem': 'Verificação concluída com sucesso.'}), 200
 
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
@@ -219,7 +216,11 @@ def cadastrar():
         endereco = data.get('endereco')
         senha = data.get('senha')
         confirmSenha = data.get('confirmSenha')
-        tipo = int(data.get('tipo'))
+        verificacao = informar_verificacao(3)
+        if verificacao:
+            tipo = 1
+        else:
+            tipo = int(data.get('tipo'))
         imagem = request.files.get('imagem')
 
         email = email.lower()
@@ -1612,9 +1613,14 @@ def gerar_relatorio_usuarios():
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 
-@app.route("/user/<int:id>", methods=["GET"])
-def get_user_id(id):
-    print(f"Recebido ID: {id}")  # Verifique se o ID é recebido corretamente
+@app.route("/user", methods=["GET"])
+def get_user_id():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id = payload["id_usuario"]
 
     cur = con.cursor()
     cur.execute("""
@@ -1693,24 +1699,6 @@ def usuarios():
     return jsonify(listaUsuarios), 200
 
 
-@app.route('/token', methods=["POST"])
-def tokenIsActive():
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'error': 'Token de autenticação necessário.'}), 401
-
-    token = remover_bearer(token)
-
-    try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'error': 'Token expirado.'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'error': 'Token inválido.'}), 401
-
-    return jsonify({'message': 'Token válido.', 'id_usuario': payload["id_usuario"]}), 200
-
-
 @app.route('/uploads/<tipo>/<filename>')
 def serve_file(tipo, filename):
     pasta_permitida = ["usuarios", "livros"]  # Apenas pastas permitidas
@@ -1748,31 +1736,6 @@ def trocar_tipo(id):
     cur.close()
 
     return jsonify({"message": "Usuário atualizado com sucesso.", "tipo": data}), 202
-
-
-@app.route("/tem_permissao", methods=["get"])
-def tem_permissao():
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'mensagem': 'Token de autenticação necessário.'}), 401
-    token = remover_bearer(token)
-    try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'mensagem': 'Token expirado.'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'mensagem': 'Token inválido.'}), 401
-
-    id_logado = payload["id_usuario"]
-
-    cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 3 or TIPO = 2)", (id_logado,))
-    bibli = cur.fetchone()
-    if not bibli:
-        cur.close()
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido.'}), 401
-    cur.close()
-    return jsonify({"message": "deu certo."}), 200
 
 
 @app.route("/puxar_historico", methods=["GET"])
@@ -1961,32 +1924,6 @@ def usuario_put_id(id_usuario):
 
     cur.close()
     return jsonify({"message": "Usuário atualizado com sucesso."}), 200
-
-
-@app.route("/tem_permissao_adm", methods=["get"])
-def tem_permissao_adm():
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'mensagem': 'Token de autenticação necessário.'}), 401
-    token = remover_bearer(token)
-    try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-    except jwt.ExpiredSignatureError:
-        return jsonify({'mensagem': 'Token expirado.'}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({'mensagem': 'Token inválido.'}), 401
-
-    id_logado = payload["id_usuario"]
-
-    cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND TIPO = 3 ", (id_logado,))
-    admin = cur.fetchone()
-    if not admin:
-        cur.close()
-        return jsonify({'mensagem': 'Nível Administrador requerido.'}), 401
-    cur.close()
-    return jsonify({"message": "deu certo."}), 200
-
 
 # Adicionar item ao carrinho de reservas
 @app.route('/carrinho_reservas', methods=['POST'])
@@ -2324,3 +2261,65 @@ def confirmar_emprestimo():
     con.commit()
     cur.close()
     return jsonify({"message": "Empréstimo confirmado.", "data_devolver": data_devolver})
+
+@app.route('/editar_senha', methods=["PUT"])
+def editar_senha():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+    data = request.get_json()
+    nova_senha = data.get("senha")
+    senha_confirm = data.get("senhaConfirm")
+
+    if not nova_senha or not senha_confirm:
+        return jsonify({"message": "Informe a nova senha e a confirmação."}), 400
+
+    if nova_senha != senha_confirm:
+        return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
+
+    if len(nova_senha) < 8 or not any(c.isupper() for c in nova_senha) or not any(
+        c.islower() for c in nova_senha) or not any(c.isdigit() for c in nova_senha) or not any(
+        c in "!@#$%^&*(), -.?\":{}|<>" for c in nova_senha):
+        return jsonify({
+            "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."
+        }), 400
+
+    nova_senha_hash = generate_password_hash(nova_senha)
+    cur = con.cursor()
+    cur.execute("UPDATE usuarios SET senha = ? WHERE id_usuario = ?", (nova_senha_hash, id_usuario))
+    con.commit()
+    cur.close()
+
+    return jsonify({"message": "Senha alterada com sucesso."}), 200
+
+@app.route('/verificar_senha_antiga', methods=["POST"])
+def verificar_senha_antiga():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id_usuario = payload["id_usuario"]
+    data = request.get_json()
+    senha_antiga = data.get("senhaAntiga")
+
+    if not senha_antiga:
+        return jsonify({"message": "Senha antiga não informada."}), 400
+
+    cur = con.cursor()
+    cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
+    resultado = cur.fetchone()
+    cur.close()
+
+    if not resultado:
+        return jsonify({"message": "Usuário não encontrado."}), 404
+
+    senha_armazenada = resultado[0]
+
+    if check_password_hash(senha_armazenada, senha_antiga):
+        return jsonify({"valido": True}), 200
+    else:
+        return jsonify({"valido": False}), 200
