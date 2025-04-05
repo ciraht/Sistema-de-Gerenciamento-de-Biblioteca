@@ -1,6 +1,6 @@
 from flask import Flask
 import fdb
-from flask_cors import CORS 
+from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
@@ -21,4 +21,5 @@ except Exception as e:
 from view import *
 
 if __name__ == '__main__':
+    agendar_tarefas()
     app.run(host='0.0.0.0', port=5000)

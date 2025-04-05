@@ -8,16 +8,23 @@ from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
 from flask_mail import Mail, Message
 from fpdf import FPDF
+from apscheduler.schedulers.background import BackgroundScheduler
 
 senha_secreta = app.config['SECRET_KEY']
 
 PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
-
+data_validade = (datetime.datetime.now() + datetime.timedelta(days=3))
 
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
     data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
     return data_devolucao.strftime("%Y-%m-%d")
+
+
+def agendar_tarefas():
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(func=verificar_multas_e_enviar, trigger='cron', hour=9, minute=0)
+    scheduler.start()
 
 
 def generate_token(user_id):
@@ -498,7 +505,7 @@ def reativar_usuario():
     cur.execute("UPDATE USUARIOS SET ATIVO = TRUE WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
     cur.close()
-    return jsonify({"message": "Usuário reativado com sucesso."})
+    return jsonify({"message": "Usuário reativado com sucesso."}), 200
 
 
 @app.route('/inativar_usuario', methods=["PUT"])
@@ -1186,28 +1193,56 @@ def devolver_emprestimo(id):
 
     cur = con.cursor()
 
-    # Verificações
-    if not id:
-        return jsonify({"message": "Todos os campos são obrigatórios."}), 401
-    else:
-        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id,))
-        if not cur.fetchone():
-            cur.close()
-            return jsonify({"message": "Id de empréstimo não encontrado."}), 404
+    # Verificar se o empréstimo existe
+    cur.execute("SELECT status FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        return jsonify({"message": "Id de empréstimo não encontrado."}), 404
 
-    # Verificar se já está devolvido
-    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND STATUS = 'DEVOLVIDO'", (id,))
-    if cur.fetchone():
+    status_atual = row[0]
+    if status_atual == "DEVOLVIDO":
         cur.close()
         return jsonify({"message": "Empréstimo já devolvido."}), 401
 
-    # Devolver o empréstimo
+    # Atualizar o empréstimo como DEVOLVIDO
     cur.execute("""
         UPDATE EMPRESTIMOS 
         SET DATA_DEVOLVIDO = CURRENT_DATE, 
             STATUS = 'DEVOLVIDO'
         WHERE ID_EMPRESTIMO = ?
     """, (id,))
+
+    # Descobrir o id_livro do empréstimo devolvido
+    cur.execute("""
+        SELECT i.id_livro
+        FROM itens_emprestimo i
+        WHERE i.id_emprestimo = ?
+    """, (id,))
+    livro_info = cur.fetchone()
+
+    if livro_info:
+        id_livro = livro_info[0]
+
+        # Verificar se há reservas pendentes para este livro
+        cur.execute("""
+            SELECT I.id_reserva
+            FROM reservas R
+            JOIN ITENS_RESERVA I ON I.ID_RESERVA = R.ID_RESERVA
+            WHERE id_livro = ? AND status = 'Pendente'
+            ORDER BY data_CRIACAO ASC
+        """, (id_livro,))
+        reserva_pendente = cur.fetchone()
+
+        # Se houver, atualiza a mais antiga para "EM ESPERA"
+        if reserva_pendente:
+            id_reserva = reserva_pendente[0]
+            cur.execute("""
+                UPDATE reservas
+                SET status = 'EM ESPERA', data_validade = ?
+                WHERE id_reserva = ?
+            """, (data_validade, id_reserva))
+
     con.commit()
     cur.close()
 
@@ -2228,42 +2263,69 @@ def confirmar_emprestimo():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
-
     data_devolver = devolucao()
-
     cur = con.cursor()
 
+    # Verifica se há livros no carrinho
     cur.execute("""
-            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
-        """, (id_usuario,))
+        SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
+    """, (id_usuario,))
+    livros_carrinho = cur.fetchall()
 
-    if not cur.fetchone():
+    if not livros_carrinho:
+        cur.close()
         return jsonify({"message": "Não há livros no carrinho."}), 404
 
-    cur.execute("""
-                SELECT 1 
-                FROM EMPRESTIMOS E
-                JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
-                JOIN CARRINHO_EMPRESTIMOS CE ON I.ID_LIVRO = CE.ID_LIVRO AND E.ID_USUARIO = CE.ID_USUARIO
-                WHERE E.STATUS IN ('ATIVO') AND E.ID_USUARIO = ?;
-            """, (id_usuario,))
-    if cur.fetchone():
-        return jsonify({"message": "Você já tem esse livro emprestado."}), 401
+    ids_livros = [livro[0] for livro in livros_carrinho]
 
+    # Verifica se algum dos livros do carrinho já está emprestado pelo usuário
+    cur.execute("""
+        SELECT 1 
+        FROM EMPRESTIMOS E
+        JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+        WHERE E.STATUS = 'ATIVO' AND E.ID_USUARIO = ? AND I.ID_LIVRO IN (
+            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
+        )
+    """, (id_usuario, id_usuario))
+
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"message": "Você já tem pelo menos um desses livros emprestado."}), 401
+
+    # Verifica se algum livro do carrinho tem reserva pendente ou em espera
+    cur.execute("""
+        SELECT 1 
+        FROM reservas 
+        WHERE status IN ('PENDENTE', 'EM ESPERA') 
+        AND id_livro IN (
+            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
+        )
+    """, (id_usuario,))
+
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
+
+    # Cria o empréstimo
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?) returning id_emprestimo",
                 (id_usuario, data_devolver))
     emprestimo_id = cur.fetchone()[0]
+
+    # Adiciona os livros ao empréstimo
     cur.execute("""
         INSERT INTO ITENS_EMPRESTIMO (ID_EMPRESTIMO, ID_LIVRO) 
         SELECT ?, ID_LIVRO 
         FROM CARRINHO_EMPRESTIMOS 
         WHERE ID_USUARIO = ?
-    """,
-                (emprestimo_id, id_usuario))
+    """, (emprestimo_id, id_usuario))
+
+    # Limpa o carrinho
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
     cur.close()
+
     return jsonify({"message": "Empréstimo confirmado.", "data_devolver": data_devolver})
+
 
 @app.route('/editar_senha', methods=["PUT"])
 def editar_senha():
@@ -2501,3 +2563,88 @@ def get_user_by_id(id):
         "ativo": usuario[7],
         "imagem": f"{usuario[0]}.jpeg"
     })
+
+def verificar_multas_e_enviar():
+    cur = con.cursor()
+    hoje = datetime.datetime.now().date()
+    limite = hoje + datetime.timedelta(days=4)
+
+    cur.execute("""
+        SELECT u.nome, u.email, a.titulo, e.data_devolver
+        FROM emprestimos e
+        JOIN usuarios u ON e.id_usuario = u.id_usuario
+        JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
+        JOIN acervo a ON i.id_livro = a.id_livro
+        WHERE e.status = 'ATIVO' AND e.data_devolver <= ?
+    """, (limite,))
+
+    emprestimos = cur.fetchall()
+
+    for nome, email, titulo, data_devolucao in emprestimos:
+        data_formatada = data_devolucao.strftime("%d/%m/%Y")
+        corpo = f"""
+                    Olá {nome},
+
+                    Este é um lembrete de que o livro "{titulo}" deve ser devolvido até o dia {data_formatada}.
+
+                    Evite multas por atraso! Caso já tenha devolvido, desconsidere este aviso.
+
+                    Atenciosamente,
+                    Sistema da Biblioteca
+                    """
+        enviar_email_async(email, "📚 Lembrete: Devolução de Livro", corpo)
+
+    cur.close()
+
+@app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
+def atender_reserva(id_reserva):
+    verificacao = informar_verificacao(2)  # Apenas bibliotecários
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    # Verifica se a reserva existe e está em espera
+    cur.execute("""
+        SELECT r.id_usuario, i.id_livro 
+        FROM reservas r
+        join itens_reserva i on r.id_reserva = i.id_reserva
+        WHERE r.id_reserva = ? AND r.status = 'EM ESPERA'
+    """, (id_reserva,))
+    dados = cur.fetchone()
+
+    if not dados:
+        cur.close()
+        return jsonify({"message": "Reserva não encontrada ou já foi atendida/cancelada."}), 404
+
+    id_usuario, id_livro = dados
+    data_devolver = devolucao()  # Função que calcula a data de devolução, como já usada por você
+
+    # Atualiza status da reserva para ATENDIDA
+    cur.execute("""
+        UPDATE reservas 
+        SET status = 'ATENDIDA'
+        WHERE id_reserva = ?
+    """, (id_reserva,))
+
+    # Cria novo empréstimo
+    cur.execute("""
+        INSERT INTO emprestimos (id_usuario, data_devolver, status) 
+        VALUES (?, ?, 'ATIVO') 
+        RETURNING id_emprestimo
+    """, (id_usuario, data_devolver))
+    id_emprestimo = cur.fetchone()[0]
+
+    # Associa o livro ao empréstimo
+    cur.execute("""
+        INSERT INTO itens_emprestimo (id_emprestimo, id_livro) 
+        VALUES (?, ?)
+    """, (id_emprestimo, id_livro))
+
+    con.commit()
+    cur.close()
+
+    return jsonify({
+        "message": "Reserva atendida e empréstimo registrado com sucesso.",
+        "data_devolver": data_devolver
+    }), 200
