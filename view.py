@@ -1178,38 +1178,41 @@ def livro_delete():
     return jsonify({'message': "Livro excluído com sucesso!"}), 200
 
 
-@app.route('/devolver_emprestimo', methods=["PUT"])
-def devolver_emprestimo():
-    verificacao = informar_verificacao()
+@app.route('/emprestimos/<int:id>/devolver', methods=["PUT"])
+def devolver_emprestimo(id):
+    verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
-
-    data = request.get_json()
-    id_emprestimo = data.get("id_emprestimo")
 
     cur = con.cursor()
 
     # Verificações
-    if not id_emprestimo:
-        # Se não recebeu o id
+    if not id:
         return jsonify({"message": "Todos os campos são obrigatórios."}), 401
     else:
-        # Se o ID não existe no banco de dados
-        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id_emprestimo,))
+        cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?", (id,))
         if not cur.fetchone():
             cur.close()
             return jsonify({"message": "Id de empréstimo não encontrado."}), 404
 
-    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND DATA_DEVOLVIDO IS NOT NULL", (id_emprestimo,))
+    # Verificar se já está devolvido
+    cur.execute("SELECT 1 FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ? AND STATUS = 'DEVOLVIDO'", (id,))
     if cur.fetchone():
         cur.close()
         return jsonify({"message": "Empréstimo já devolvido."}), 401
 
     # Devolver o empréstimo
-    cur.execute("UPDATE EMPRESTIMOS SET DATA_DEVOLVIDO = CURRENT_DATE WHERE ID_EMPRESTIMO = ?", (id_emprestimo,))
+    cur.execute("""
+        UPDATE EMPRESTIMOS 
+        SET DATA_DEVOLVIDO = CURRENT_DATE, 
+            STATUS = 'DEVOLVIDO'
+        WHERE ID_EMPRESTIMO = ?
+    """, (id,))
     con.commit()
     cur.close()
-    return jsonify({"message": "Devolução feita com sucesso."}), 200
+
+    return jsonify({"message": "Devolução realizada com sucesso."}), 200
+
 
 
 @app.route('/renovar_emprestimo', methods=["PUT"])
@@ -1614,7 +1617,7 @@ def gerar_relatorio_usuarios():
 
 
 @app.route("/user", methods=["GET"])
-def get_user_id():
+def get_self_user():
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
@@ -2323,3 +2326,178 @@ def verificar_senha_antiga():
         return jsonify({"valido": True}), 200
     else:
         return jsonify({"valido": False}), 200
+
+from flask import jsonify
+
+from flask import jsonify
+from collections import defaultdict
+
+@app.route("/emprestimos", methods=["GET"])
+def get_all_emprestimos():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT 
+            E.ID_EMPRESTIMO, 
+            E.ID_USUARIO, 
+            E.DATA_RETIRADA, 
+            E.DATA_DEVOLVER, 
+            E.DATA_DEVOLVIDO, 
+            E.STATUS, 
+            A.ID_LIVRO, 
+            A.TITULO
+        FROM EMPRESTIMOS E
+        JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+        JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+        ORDER BY E.DATA_DEVOLVER DESC
+    """)
+
+    rows = cur.fetchall()
+
+    # Agrupar por ID_EMPRESTIMO
+    emprestimos_dict = {}
+
+    for row in rows:
+        id_emprestimo = row[0]
+
+        if id_emprestimo not in emprestimos_dict:
+            emprestimos_dict[id_emprestimo] = {
+                "id_emprestimo": row[0],
+                "id_usuario": row[1],
+                "data_retirada": str(row[2]),
+                "data_devolver": str(row[3]),
+                "data_devolvido": str(row[4]) if row[4] else None,
+                "status": row[5],
+                "livros": []
+            }
+
+        emprestimos_dict[id_emprestimo]["livros"].append({
+            "id_livro": row[6],
+            "titulo": row[7]
+        })
+
+    # Converter para lista
+    emprestimos = list(emprestimos_dict.values())
+
+    return jsonify(emprestimos), 200
+
+@app.route("/puxar_historico/<int:id>", methods=["GET"])
+def puxar_historico_by_id(id):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    # Emprestimos Ativos
+    cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+            ORDER BY E.DATA_DEVOLVER ASC
+        """, (id,))
+    emprestimos_ativos = cur.fetchall()
+
+    # Emprestimos Concluídos
+    cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NOT NULL
+            ORDER BY E.DATA_DEVOLVIDO DESC
+        """, (id,))
+    emprestimos_concluidos = cur.fetchall()
+
+    # Reservas Ativas - Obtendo os livros relacionados às reservas
+    cur.execute("""
+            SELECT IR.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+            FROM ITENS_RESERVA IR
+            JOIN RESERVAS R ON IR.ID_RESERVA = R.ID_RESERVA
+            JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+            WHERE R.ID_USUARIO = ?
+            ORDER BY R.DATA_VALIDADE ASC
+        """, (id,))
+    reservas_ativas = cur.fetchall()
+
+    # Multas Pendentes
+    cur.execute("""
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO, M.PAGO
+            FROM MULTAS M
+            WHERE M.ID_USUARIO = ? AND M.PAGO = 0
+            ORDER BY TOTAL DESC
+        """, (id,))
+    multas_pendentes = cur.fetchall()
+
+    historico = {
+        "emprestimos_ativos": [
+            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+             "data_devolver": e[5]}
+            for e in emprestimos_ativos
+        ],
+        "emprestimos_concluidos": [
+            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+             "data_devolver": e[5], "data_devolvido": e[6]}
+            for e in emprestimos_concluidos
+        ],
+        "reservas_ativas": [
+            {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_criacao": r[4],
+             "data_validade": r[5], "status": r[6]}
+            for r in reservas_ativas
+        ],
+        "multas_pendentes": [
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4],
+             "pago": m[5]}
+            for m in multas_pendentes
+        ]
+    }
+
+    cur.close()
+
+    return jsonify(historico)
+
+
+@app.route("/user/<int:id>", methods=["GET"])
+def get_user_by_id(id):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT
+            id_usuario, 
+            nome, 
+            email, 
+            telefone, 
+            endereco, 
+            senha, 
+            tipo, 
+            ativo
+        FROM usuarios
+        WHERE id_usuario = ?
+    """, (id,))
+
+    usuario = cur.fetchone()
+    cur.close()
+
+    if not usuario:  # Se o usuário não existir, retorna erro 404
+        return jsonify({"error": "Usuário não encontrado."}), 404
+
+    return jsonify({
+        "id": usuario[0],
+        "nome": usuario[1],
+        "email": usuario[2],
+        "telefone": usuario[3],
+        "endereco": usuario[4],
+        "senha": usuario[5],
+        "tipo": usuario[6],
+        "ativo": usuario[7],
+        "imagem": f"{usuario[0]}.jpeg"
+    })
