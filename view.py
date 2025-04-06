@@ -168,7 +168,27 @@ def enviar_email_async(destinatario, assunto, corpo):
         with app.app_context():
             print(destinatario, assunto, corpo)
             msg = Message(assunto, recipients=[destinatario])
-            msg.body = corpo
+            msg.html = f"""<!DOCTYPE html>
+                            <html lang="pt-BR">
+                            <head>
+                                <meta charset="UTF-8">
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <title>E-mail</title>
+                            </head>
+                            <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; line-height: 1.6; padding: 8px;">
+                                    <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); border-radius: 8px;">
+                                        <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
+                                            <div style="font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 20px;">{assunto}</div>
+                                        </div>
+
+                                        <div style="font-size: 18px; color: #e3e3e3; margin-bottom: 30px; border-radius: 5px; background-color: #4A4DFF; padding:10px;">{corpo}</div>
+                                        <div style="font-size: 12px; color: #272727; text-align: center; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
+                                            &copy; 2025 Libris. Todos os direitos reservados.
+                                        </div>
+                                    </div>
+                            </body>
+                        </html>
+                        """
             # Definindo o cabeçalho Reply-To para o endereço noreply
             msg.reply_to = 'noreply@dominio.com'  # Não aceitar respostas
 
