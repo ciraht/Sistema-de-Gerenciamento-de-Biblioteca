@@ -2132,36 +2132,41 @@ def confirmar_reserva():
     if cur.fetchone():
         return jsonify({"message": "Você já tem esse livro emprestado."}), 401
 
-    print(id_usuario)
     cur.execute("INSERT INTO RESERVAS (ID_USUARIO) VALUES (?) RETURNING ID_RESERVA;", (id_usuario,))
 
     reserva_id = cur.fetchone()[0]
-    print(reserva_id)
 
     cur.execute("""
         INSERT INTO ITENS_RESERVA (ID_RESERVA, ID_LIVRO)
         SELECT ?, ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?
     """, (reserva_id, id_usuario))
-    cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA IR WHERE IR.ID_RESERVA IN (SELECT ID_RESERVA FROM RESERVAS R WHERE R.ID_USUARIO = ?)", (id_usuario,))
-    livros = cur.fetchall()
-    print(f"Livros reservados: {livros}")
 
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
 
     # Pegar o nome e autor dos livros para usar no email
+    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'Pendente'))")
+    livros_reservados = cur.fetchall()
+    print(f"LIVROS RESERVADOS: {livros_reservados}")
 
     # Enviar o email da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     usuario = cur.fetchone()
+
     nome = usuario[0]
     email = usuario[1]
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
     corpo = f"""
-    Olá {nome},\n\nSua reserva foi feita com sucesso!
+    Você fez uma reserva!
     Livros reservados:
-    • 
+    <br>
     """
+    for livro in livros_reservados:
+        titulo = livro[0]
+        autor = livro[1]
+        corpo += (f""
+                  f"&#x2022; {titulo}, por {autor} <br>")
+    print(f"Corpo formatado: {corpo}")
 
     con.commit()
     cur.close()
@@ -2315,11 +2320,10 @@ def confirmar_emprestimo():
     # Verifica se algum livro do carrinho tem reserva pendente ou em espera
     cur.execute("""
         SELECT 1 
-        FROM reservas 
-        WHERE status IN ('PENDENTE', 'EM ESPERA') 
-        AND id_livro IN (
-            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
-        )
+        FROM CARRINHO_EMPRESTIMOS CE
+        WHERE CE.ID_LIVRO IN (SELECT IR.ID_LIVRO FROM ITENS_RESERVA IR
+            WHERE IR.ID_RESERVA IN (SELECT R.ID_RESERVA FROM RESERVAS R 
+                WHERE STATUS = 'Pendente' OR STATUS = 'EM ESPERA')) 
     """, (id_usuario,))
 
     if cur.fetchone():
@@ -2342,6 +2346,35 @@ def confirmar_emprestimo():
     # Limpa o carrinho
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
+
+    # Enviar o e-mail com os livros emprestados
+    # Pegar o nome e autor dos livros para usar no email
+    cur.execute(
+        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ie.ID_LIVRO FROM ITENS_EMPRESTIMO ie WHERE ie.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO'))")
+    livros_emprestados = cur.fetchall()
+    print(f"LIVROS RESERVADOS: {livros_emprestados}")
+
+    # Enviar o e-mail da reserva feita para o usuário
+    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
+    usuario = cur.fetchone()
+
+    nome = usuario[0]
+    email = usuario[1]
+    print(f"Nome: {nome}, email: {email}")
+    assunto = nome + ", Uma nota de empréstimo"
+    corpo = f"""
+        Você fez um empréstimo!
+        Livros emprestados:
+        <br>
+        """
+    for livro in livros_emprestados:
+        titulo = livro[0]
+        autor = livro[1]
+        corpo += (f""
+                  f"&#x2022; {titulo}, por {autor} <br>")
+    print(f"Corpo formatado: {corpo}")
+
+    enviar_email_async(email, assunto, corpo)
     cur.close()
 
     return jsonify({"message": "Empréstimo confirmado.", "data_devolver": data_devolver})
