@@ -1135,8 +1135,8 @@ def livro_delete():
     cur.execute(
         'SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)',
         (id_livro,))
-    id_usuario = cur.fetchone()
-    print(f"Usuário que teve sua reserva deletada: {id_usuario}")
+    id_usuario = cur.fetchall()
+    print(f"Usuário que teve sua reserva cancelada: {id_usuario}")
 
     cur.execute("SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?", (id_livro,))
     reservas_deletar = cur.fetchall()
@@ -1144,36 +1144,39 @@ def livro_delete():
 
     if reservas_deletar:
         placeholders = ', '.join('?' for _ in reservas_deletar)
-        query = f"DELETE FROM RESERVAS r WHERE r.ID_RESERVA IN ({placeholders})"
-        cur.execute(query, reservas_deletar)
+        consulta = f"UPDATE RESERVAS r SET r.STATUS = 'CANCELADA' WHERE r.ID_RESERVA IN ({placeholders})"
+        cur.execute(consulta, reservas_deletar)
 
-    # Enviar um email para o usuário que possuia reserva
+    # Enviar um e-mail para o usuário que possuia reserva
+    # -----------!
 
-    # Deleção de empréstimos
+    # Cancelamento de empréstimos
     cur.execute(
         "SELECT ID_USUARIO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO' AND DATA_DEVOLVIDO IS NULL AND ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?)",
         (id_livro,))
-    id_usuario = cur.fetchone()
-    print(f"Usuário que teve seu emprestimo deletado: {id_usuario}")
+    id_usuario = cur.fetchall()
+    print(f"Usuário que teve seu empréstimo cancelado: {id_usuario}")
 
     cur.execute("SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
     emprestimos_deletar = cur.fetchall()
-    emprestimos_deletar = [r[0] for r in emprestimos_deletar]  # Extrai apenas o valor do ID_RESERVA de cada tupla
+    emprestimos_deletar = [r[0] for r in emprestimos_deletar]  # Extrai apenas o valor do ID_EMPRESTIMO de cada tupla
 
     if emprestimos_deletar:
         placeholders = ', '.join('?' for _ in emprestimos_deletar)
-        query = f"DELETE FROM EMPRESTIMOS ie WHERE ie.ID_EMPRESTIMO IN ({placeholders})"
+        query = f"UPDATE EMPRESTIMOS E SET STATUS = 'CANCELADO' WHERE E.ID_EMPRESTIMO IN ({placeholders})"
         cur.execute(query, emprestimos_deletar)
 
-    # Enviar um email para o usuário que teve seu empréstimo comprometido
+    # Enviar um e-mail para o usuário que teve o seu empréstimo comprometido
+    # -----------!
 
-    # E finalmente, da lista de livros
-    cur.execute("DELETE FROM acervo WHERE ID_livro = ?", (id_livro,))
+    # E finalmente, na lista de livros
+    cur.execute("UPDATE ACERVO SET DISPONIVEL = FALSE WHERE ID_livro = ?", (id_livro,))
 
     con.commit()
     cur.close()
 
     # Remover imagem do livro
+    """
     upload_folder = app.config['UPLOAD_FOLDER']
     if not os.path.exists(upload_folder):
         os.makedirs(upload_folder)
@@ -1201,8 +1204,9 @@ def livro_delete():
         if os.path.exists(caminho_imagem):
             os.remove(caminho_imagem)
             break
+    """
 
-    return jsonify({'message': "Livro excluído com sucesso!"}), 200
+    return jsonify({'message': "Livro retirado da biblioteca com sucesso!"}), 200
 
 
 @app.route('/emprestimos/<int:id>/devolver', methods=["PUT"])
@@ -2073,7 +2077,7 @@ def verificar_reserva(livro_id):
     cur = con.cursor()
     cur.execute("""
         SELECT QTD_DISPONIVEL, 
-            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('Pendente', 'CONFIRMADA')) AS total_reservas,
+            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_reservas,
             (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
@@ -2117,7 +2121,7 @@ def confirmar_reserva():
         FROM RESERVAS R
         JOIN ITENS_RESERVA I ON R.ID_RESERVA = I.ID_RESERVA
         JOIN CARRINHO_RESERVAS CR ON I.ID_LIVRO = CR.ID_LIVRO AND R.ID_USUARIO = CR.ID_USUARIO
-        WHERE R.STATUS IN ('Pendente', 'Ativo') AND r.ID_USUARIO = ?;
+        WHERE R.STATUS IN ('PENDENTE', 'ATIVO') AND r.ID_USUARIO = ?;
     """, (id_usuario,))
     if cur.fetchone():
         return jsonify({"message": "Você já tem esse livro reservado."}), 401
@@ -2144,7 +2148,7 @@ def confirmar_reserva():
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
 
     # Pegar o nome e autor dos livros para usar no email
-    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'Pendente'))")
+    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'PENDENTE'))")
     livros_reservados = cur.fetchall()
     print(f"LIVROS RESERVADOS: {livros_reservados}")
 
@@ -2323,7 +2327,7 @@ def confirmar_emprestimo():
         FROM CARRINHO_EMPRESTIMOS CE
         WHERE CE.ID_LIVRO IN (SELECT IR.ID_LIVRO FROM ITENS_RESERVA IR
             WHERE IR.ID_RESERVA IN (SELECT R.ID_RESERVA FROM RESERVAS R 
-                WHERE STATUS = 'Pendente' OR STATUS = 'EM ESPERA')) 
+                WHERE STATUS = 'PENDENTE' OR STATUS = 'EM ESPERA')) 
     """, (id_usuario,))
 
     if cur.fetchone():
