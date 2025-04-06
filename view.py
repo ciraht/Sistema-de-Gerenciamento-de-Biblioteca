@@ -1536,7 +1536,7 @@ def avaliar_livro(id):
         return verificacao
 
     data = request.get_json()
-    valor = data.get("valor")  # De 0 a 5
+    valor = data.get("valor")
 
     cur = con.cursor()
     cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
@@ -2085,14 +2085,25 @@ def verificar_reserva(livro_id):
     livro = cur.fetchone()
 
     # Verificar se o usuário já possui alguma reserva ativa do livro
-    cur.execute(
-        "SELECT 1 FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.ID_USUARIO = ?"
-        , (livro_id, payload["id_usuario"]))
-    ja_tem = True if cur.fetchone() else False
-    print(ja_tem)
+    cur.execute("""
+            SELECT 1 
+            FROM RESERVAS R
+            JOIN ITENS_RESERVA I ON R.ID_RESERVA = I.ID_RESERVA
+            WHERE R.STATUS IN ('PENDENTE', 'EM ESPERA') AND r.ID_USUARIO = ? AND I.ID_LIVRO = ?;
+        """, (payload["id_usuario"], livro_id))
+    ja_tem_reserva = True if cur.fetchone() else False
+
+    cur.execute("""
+                SELECT 1
+                FROM EMPRESTIMOS E
+                JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+                WHERE E.STATUS IN ('ATIVO') AND I.id_livro = ? and e.id_usuario = ?;
+            """, (livro_id,payload["id_usuario"]))
+    ja_tem_emprestimo = True if cur.fetchone() else False
+
     cur.close()
 
-    if livro and (livro[2] >= livro[0] > livro[1]) and not ja_tem:
+    if livro and (livro[2] >= livro[0] > livro[1]) and not ja_tem_reserva and not ja_tem_emprestimo:
         return jsonify({"disponivel": True})
     return jsonify({"disponivel": False})
 
