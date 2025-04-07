@@ -2277,21 +2277,35 @@ def verificar_emprestimo(livro_id):
     cur = con.cursor()
     cur.execute("""
         SELECT QTD_DISPONIVEL, 
-            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
+            (SELECT COUNT(*) 
+             FROM EMPRESTIMOS E 
+             INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO 
+             WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
     """, (livro_id, livro_id))
     livro = cur.fetchone()
 
-    # Verificar se o usuário já possui algum empréstimo ativo do livro
-    cur.execute("SELECT 1 FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO' AND E.ID_USUARIO = ?"
-                , (livro_id, payload["id_usuario"]))
-    ja_tem = True if cur.fetchone() else False
+    # Verificar se o usuário já possui empréstimo ativo desse livro
+    cur.execute("""
+        SELECT 1 
+        FROM EMPRESTIMOS E
+        JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
+        WHERE E.STATUS = 'ATIVO' AND E.ID_USUARIO = ? AND I.ID_LIVRO = ?
+    """, (payload["id_usuario"], livro_id))
+    ja_tem_emprestimo = cur.fetchone() is not None
 
     cur.close()
-    if livro and (livro[0] > livro[1]) and not ja_tem:
-        return jsonify({"disponivel": True})
-    return jsonify({"disponivel": False})
+
+    if livro and livro[0] > livro[1] and not ja_tem_emprestimo:
+        return jsonify({
+            "disponivel": True
+        })
+
+    return jsonify({
+        "mensagem": "Você já possui esse livro emprestado.",
+        "disponivel": False
+    })
 
 
 # Confirmar empréstimo
