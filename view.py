@@ -15,6 +15,8 @@ senha_secreta = app.config['SECRET_KEY']
 PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
 data_validade = (datetime.datetime.now() + datetime.timedelta(days=3))
 
+def mudardatavalidade(dataemdias):
+    data_validade = (datetime.datetime.now() + datetime.timedelta(days=dataemdias))
 
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
@@ -814,6 +816,7 @@ def get_livros():
                 a.idiomas, 
                 a.ANO_PUBLICADO
             FROM ACERVO a
+            where disponivel = true
             ORDER BY a.id_livro;
         """
                 )
