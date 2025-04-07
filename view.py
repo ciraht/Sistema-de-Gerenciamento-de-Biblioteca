@@ -245,9 +245,9 @@ def cadastrar():
         confirmSenha = data.get('confirmSenha')
         verificacao = informar_verificacao(3)
         if verificacao:
-            tipo = 1
-        else:
             tipo = int(data.get('tipo'))
+        else:
+            tipo = 1
         imagem = request.files.get('imagem')
 
         email = email.lower()
@@ -1979,7 +1979,12 @@ def usuario_put_id(id_usuario):
         os.makedirs(pasta_destino, exist_ok=True)
         imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
         imagem.save(imagem_path)
-        # print("oi\n\n\n\n")
+    else:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        if os.path.exists(imagem_path):
+            os.remove(imagem_path)
 
     # Commit das alterações
     con.commit()
@@ -2103,9 +2108,17 @@ def verificar_reserva(livro_id):
 
     cur.close()
 
+    mensagem = ""
+
+    if ja_tem_emprestimo:
+        mensagem = "Você já tem esse livro emprestado"
+
+    if ja_tem_reserva:
+        mensagem = "Você já tem esse livro reservado"
+
     if livro and (livro[2] >= livro[0] > livro[1]) and not ja_tem_reserva and not ja_tem_emprestimo:
         return jsonify({"disponivel": True})
-    return jsonify({"disponivel": False})
+    return jsonify({"mensagem": mensagem, "disponivel": False})
 
 
 # Confirmar reserva
@@ -2303,7 +2316,6 @@ def verificar_emprestimo(livro_id):
         })
 
     return jsonify({
-        "mensagem": "Você já possui esse livro emprestado.",
         "disponivel": False
     })
 
