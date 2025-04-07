@@ -1,8 +1,11 @@
 import os
 import jwt
-import threading
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
+import smtplib
+import threading
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 import config
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
@@ -15,8 +18,10 @@ senha_secreta = app.config['SECRET_KEY']
 PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
 data_validade = (datetime.datetime.now() + datetime.timedelta(days=3))
 
+
 def mudardatavalidade(dataemdias):
     data_validade = (datetime.datetime.now() + datetime.timedelta(days=dataemdias))
+
 
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
@@ -166,32 +171,6 @@ def buscar_livro_por_id(id):
 mail = Mail(app)
 
 
-def enviar_email_async(destinatario, assunto, corpo):
-    def enviar_email():
-        with app.app_context():
-            print(destinatario, assunto, corpo)
-            msg = Message(assunto, recipients=[destinatario])
-            msg.body = f"""
-{assunto}\n
-{corpo}
-\n\n
-© 2025 Libris. Todos os direitos reservados.
-                        """
-            # Definindo o cabeçalho Reply-To para o endereço noreply
-            msg.reply_to = 'noreply@dominio.com'  # Não aceitar respostas
-
-            try:
-                mail.send(msg)
-            except Exception as e:
-                print(e)
-                raise
-
-    # Criando uma thread para enviar o email em segundo plano
-    thread = threading.Thread(target=enviar_email)
-    thread.start()
-
-
-# Rota para testes
 """
 @app.route('/enviar_emails', methods=['GET'])
 def enviar_emails():
@@ -209,6 +188,88 @@ def enviar_emails():
 
     return jsonify({"message": "E-mails enviados com sucesso!"})
 """
+
+
+# view.py
+import smtplib
+import threading
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from flask import current_app as app
+
+def enviar_email_async(destinatario, assunto, corpo):
+    def enviar_email():
+        with app.app_context():
+            # Configurações do e-mail
+            from_email = app.config['MAIL_USERNAME']
+            password = app.config['MAIL_PASSWORD']
+            to_email = destinatario
+
+            # Criando a mensagem
+            msg = MIMEMultipart()
+            msg['From'] = from_email
+            msg['To'] = to_email
+            msg['Subject'] = assunto
+
+            # Corpo do e-mail (HTML) com a codificação UTF-8
+            html = f"""<!DOCTYPE html>
+                                    <html lang="pt-BR">
+                                    <head>
+                                        <meta charset="UTF-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                        <title>E-mail</title>
+                                    </head>
+                                    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; line-height: 1.6; padding: 8px;">
+                                            <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); border-radius: 8px;">
+                                                <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
+                                                    <div style="font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 20px;">{assunto}</div>
+                                                </div>
+
+                                                <div style="font-size: 18px; color: #e3e3e3; margin-bottom: 30px; border-radius: 5px; background-color: #4A4DFF; padding:10px;">{corpo}</div>
+                                                <div style="font-size: 12px; color: #272727; text-align: center; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
+                                                    &copy; 2025 Libris. Todos os direitos reservados.
+                                                </div>
+                                            </div>
+                                    </body>
+                                </html>"""
+
+            # Anexando o conteúdo HTML ao e-mail com a codificação UTF-8
+            msg.attach(MIMEText(html, 'html', _charset='utf-8'))
+
+            # Configuração do servidor SMTP
+            try:
+                # Conectando ao servidor SMTP
+                server = smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT'])
+                server.starttls()  # Inicia criptografia
+                server.login(from_email, password)  # Login no servidor
+                server.sendmail(from_email, to_email, msg.as_string())  # Envia o e-mail
+                server.quit()  # Fecha a conexão com o servidor
+                print(f"E-mail enviado para {destinatario}")
+            except Exception as e:
+                print(f"Erro ao enviar e-mail: {e}")
+
+    # Criando uma thread para enviar o e-mail em segundo plano
+    thread = threading.Thread(target=enviar_email)
+    thread.start()
+
+
+
+# Rota para testes
+@app.route('/enviar_emails', methods=['GET'])
+def enviar_emails():
+    cur = con.cursor()
+    cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'othaviohma2014@gmail.com'")
+    usuario = cur.fetchone()
+
+    # Enviar e-mail para todos os usuários ativos
+    nome = usuario[1]
+    email = usuario[2]
+    print(f"Nome: {nome}, email: {email}")
+    assunto = 'Olá, ' + nome
+    corpo = f'Olá {nome},\n\nEste é um e-mail de exemplo enviado via Flask.'
+    enviar_email_async(email, assunto, corpo)
+
+    return jsonify({"message": "E-mails enviados com sucesso!"})
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
