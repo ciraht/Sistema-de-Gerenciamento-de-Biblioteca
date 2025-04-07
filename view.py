@@ -852,6 +852,58 @@ def get_livros():
     cur.close()
     return jsonify(livros), 200
 
+@app.route('/livrosadm', methods=["GET"])
+def get_livros_adm():
+    cur = con.cursor()
+    cur.execute("""
+            SELECT 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL, 
+                a.DESCRICAO, 
+                a.idiomas, 
+                a.ANO_PUBLICADO,
+                a.disponivel
+            FROM ACERVO a
+            ORDER BY a.id_livro;
+        """
+                )
+
+    livros = []
+    for r in cur.fetchall():
+        cur.execute("""
+            SELECT t.id_tag, t.nome_tag
+            FROM LIVRO_TAGS lt
+            LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+            WHERE lt.ID_LIVRO = ?
+        """, (r[0],))
+        tags = cur.fetchall()
+
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+        livro = {
+            'id': r[0],
+            'titulo': r[1],
+            'autor': r[2],
+            'categoria': r[3],
+            'isbn': r[4],
+            'qtd_disponivel': r[5],
+            'descricao': r[6],
+            'idiomas': r[7],
+            'ano_publicacao': r[8],
+            'selectedTags': selected_tags,
+            'imagem': f"{r[0]}.jpeg",
+            'disponivel': r[9]
+        }
+
+        livros.append(livro)
+
+    cur.close()
+    return jsonify(livros), 200
+
 
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
