@@ -15,6 +15,7 @@ senha_secreta = app.config['SECRET_KEY']
 PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
 data_validade = (datetime.datetime.now() + datetime.timedelta(days=3))
 
+
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
     data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
@@ -30,7 +31,7 @@ def agendar_tarefas():
 def generate_token(user_id):
     payload = {
         "id_usuario": user_id,
-        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=48)
+        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=3)
     }
     token = jwt.encode(payload, senha_secreta, algorithm='HS256')
     return token
@@ -168,26 +169,11 @@ def enviar_email_async(destinatario, assunto, corpo):
         with app.app_context():
             print(destinatario, assunto, corpo)
             msg = Message(assunto, recipients=[destinatario])
-            msg.html = f"""<!DOCTYPE html>
-                            <html lang="pt-BR">
-                            <head>
-                                <meta charset="UTF-8">
-                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                <title>E-mail</title>
-                            </head>
-                            <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; line-height: 1.6; padding: 8px;">
-                                    <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); border-radius: 8px;">
-                                        <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
-                                            <div style="font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 20px;">{assunto}</div>
-                                        </div>
-
-                                        <div style="font-size: 18px; color: #e3e3e3; margin-bottom: 30px; border-radius: 5px; background-color: #4A4DFF; padding:10px;">{corpo}</div>
-                                        <div style="font-size: 12px; color: #272727; text-align: center; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-                                            &copy; 2025 Libris. Todos os direitos reservados.
-                                        </div>
-                                    </div>
-                            </body>
-                        </html>
+            msg.body = f"""
+{assunto}\n
+{corpo}
+\n\n
+© 2025 Libris. Todos os direitos reservados.
                         """
             # Definindo o cabeçalho Reply-To para o endereço noreply
             msg.reply_to = 'noreply@dominio.com'  # Não aceitar respostas
@@ -196,6 +182,7 @@ def enviar_email_async(destinatario, assunto, corpo):
                 mail.send(msg)
             except Exception as e:
                 print(e)
+                raise
 
     # Criando uma thread para enviar o email em segundo plano
     thread = threading.Thread(target=enviar_email)
@@ -230,6 +217,7 @@ def verificar(tipo):
         return verificacao
 
     return jsonify({'mensagem': 'Verificação concluída com sucesso.'}), 200
+
 
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
@@ -1098,27 +1086,18 @@ def editar_livro(id_livro):
     return jsonify({"message": "Livro atualizado com sucesso."}), 200
 
 
-@app.route('/excluir_livro', methods=["DELETE"])
+@app.route('/excluir_livro', methods=["PUT"])
 def livro_delete():
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     payload = informar_verificacao(trazer_pl=True)
 
-    id_logado = payload["id_usuario"]
-
-    cur = con.cursor()
-    cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ? AND (TIPO = 2 OR TIPO = 3)", (id_logado,))
-    biblio = cur.fetchone()
-
-    if not biblio:
-        cur.close()
-        return jsonify({'mensagem': 'Nível Bibliotecário requerido.'}), 401
-
     # Obter JSON da requisição
     data = request.get_json()
 
     # Garantir que o ID foi enviado
+    cur = con.cursor()
     if not data or 'id_livro' not in data:
         cur.close()
         return jsonify({"error": "ID do livro não fornecido."}), 401
@@ -1131,7 +1110,20 @@ def livro_delete():
         cur.close()
         return jsonify({"error": "Livro não encontrado."}), 404
 
-    # Deleção de reservas
+    cur.execute("SELECT DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
+    disponivel = cur.fetchone()
+    if not disponivel:
+        return jsonify({"error": "Não foi possível verificar a disponibilidade do livro."}), 401
+
+    if not disponivel[0]:
+        cur.execute("UPDATE ACERVO SET DISPONIVEL = TRUE WHERE ID_livro = ?", (id_livro,))
+
+        con.commit()
+        cur.close()
+        return jsonify(
+            {"message": "Livro marcado como disponível de volta"}), 200
+
+    # Cancelamento de reservas
     cur.execute(
         'SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)',
         (id_livro,))
@@ -1271,7 +1263,6 @@ def devolver_emprestimo(id):
     cur.close()
 
     return jsonify({"message": "Devolução realizada com sucesso."}), 200
-
 
 
 @app.route('/renovar_emprestimo', methods=["PUT"])
@@ -1992,6 +1983,7 @@ def usuario_put_id(id_usuario):
     cur.close()
     return jsonify({"message": "Usuário atualizado com sucesso."}), 200
 
+
 # Adicionar item ao carrinho de reservas
 @app.route('/carrinho_reservas', methods=['POST'])
 def adicionar_carrinho_reserva():
@@ -2103,7 +2095,7 @@ def verificar_reserva(livro_id):
                 FROM EMPRESTIMOS E
                 JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
                 WHERE E.STATUS IN ('ATIVO') AND I.id_livro = ? and e.id_usuario = ?;
-            """, (livro_id,payload["id_usuario"]))
+            """, (livro_id, payload["id_usuario"]))
     ja_tem_emprestimo = True if cur.fetchone() else False
 
     cur.close()
@@ -2172,7 +2164,8 @@ def confirmar_reserva():
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
 
     # Pegar o nome e autor dos livros para usar no email
-    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'PENDENTE'))")
+    cur.execute(
+        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'PENDENTE'))")
     livros_reservados = cur.fetchall()
     print(f"LIVROS RESERVADOS: {livros_reservados}")
 
@@ -2182,18 +2175,18 @@ def confirmar_reserva():
 
     nome = usuario[0]
     email = usuario[1]
+
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
     corpo = f"""
-    Você fez uma reserva!
-    Livros reservados:
-    <br>
-    """
+Você fez uma reserva!
+Livros reservados:\n
+            """
     for livro in livros_reservados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f""
-                  f"&#x2022; {titulo}, por {autor} <br>")
+        corpo += (f"\n"
+                  f"• {titulo}, por {autor}\n")
     print(f"Corpo formatado: {corpo}")
 
     con.commit()
@@ -2401,18 +2394,25 @@ def confirmar_emprestimo():
 
     nome = usuario[0]
     email = usuario[1]
+
+    # Convertendo a string para um objeto datetime
+    data_objeto = datetime.datetime.strptime(data_devolver, "%Y-%m-%d")
+
+    # Formatando para o formato desejado "dia-mês-ano"
+    data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
+    print(data_devolver_formatada)
     print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de empréstimo"
     corpo = f"""
-        Você fez um empréstimo!
-        Livros emprestados:
-        <br>
+Você fez um empréstimo!
+Data de devolução: {data_devolver_formatada}
+Livros emprestados:\n
         """
     for livro in livros_emprestados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f""
-                  f"&#x2022; {titulo}, por {autor} <br>")
+        corpo += (f"\n" 
+                  f"• {titulo}, por {autor}\n")
     print(f"Corpo formatado: {corpo}")
 
     enviar_email_async(email, assunto, corpo)
@@ -2440,7 +2440,7 @@ def editar_senha():
         return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 400
 
     if len(nova_senha) < 8 or not any(c.isupper() for c in nova_senha) or not any(
-        c.islower() for c in nova_senha) or not any(c.isdigit() for c in nova_senha) or not any(
+            c.islower() for c in nova_senha) or not any(c.isdigit() for c in nova_senha) or not any(
         c in "!@#$%^&*(), -.?\":{}|<>" for c in nova_senha):
         return jsonify({
             "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."
@@ -2453,6 +2453,7 @@ def editar_senha():
     cur.close()
 
     return jsonify({"message": "Senha alterada com sucesso."}), 200
+
 
 @app.route('/verificar_senha_antiga', methods=["POST"])
 def verificar_senha_antiga():
@@ -2483,10 +2484,6 @@ def verificar_senha_antiga():
     else:
         return jsonify({"valido": False}), 200
 
-from flask import jsonify
-
-from flask import jsonify
-from collections import defaultdict
 
 @app.route("/emprestimos", methods=["GET"])
 def get_all_emprestimos():
@@ -2540,6 +2537,7 @@ def get_all_emprestimos():
     emprestimos = list(emprestimos_dict.values())
 
     return jsonify(emprestimos), 200
+
 
 @app.route("/puxar_historico/<int:id>", methods=["GET"])
 def puxar_historico_by_id(id):
@@ -2658,6 +2656,7 @@ def get_user_by_id(id):
         "imagem": f"{usuario[0]}.jpeg"
     })
 
+
 def verificar_multas_e_enviar():
     cur = con.cursor()
     hoje = datetime.datetime.now().date()
@@ -2689,6 +2688,7 @@ def verificar_multas_e_enviar():
         enviar_email_async(email, "📚 Lembrete: Devolução de Livro", corpo)
 
     cur.close()
+
 
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
 def atender_reserva(id_reserva):
