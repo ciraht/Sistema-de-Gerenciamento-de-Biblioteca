@@ -142,7 +142,7 @@ def buscar_livro_por_id(id):
 
     cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()
-    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    cur.execute("SELECT COUNT(*) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     qtd = cur.fetchone()
 
     if valor_total and qtd and qtd[0] != 0:
@@ -168,29 +168,6 @@ def buscar_livro_por_id(id):
     }
 
 
-# Inicializando o Flask-Mail
-mail = Mail(app)
-
-
-"""
-@app.route('/enviar_emails', methods=['GET'])
-def enviar_emails():
-    cur = con.cursor()
-    cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'dimitric2007@gmail.com'")
-    usuario = cur.fetchone()
-
-    # Enviar e-mail para todos os usuários ativos
-    nome = usuario[1]
-    email = usuario[2]
-    print(f"Nome: {nome}, email: {email}")
-    assunto = 'Olá, ' + nome
-    corpo = f'Olá {nome},\n\nEste é um e-mail de exemplo enviado via Flask.'
-    enviar_email_async(email, assunto, corpo)
-
-    return jsonify({"message": "E-mails enviados com sucesso!"})
-"""
-
-
 def enviar_email_async(destinatario, assunto, corpo):
     def enviar_email(destinatario, assunto, corpo):
         msg = EmailMessage()
@@ -200,10 +177,10 @@ def enviar_email_async(destinatario, assunto, corpo):
 
         # Texto do e-mail
         mensagem = f"""
-{assunto}\n
+\n
 {corpo}
 \n\n
-© 2025 Libris. Todos os direitos reservados.
+© 2025 Read Raccoon. Todos os direitos reservados.
                         """
 
         # Versão texto simples como fallback
@@ -224,6 +201,7 @@ def enviar_email_async(destinatario, assunto, corpo):
     thread.start()
 
 
+"""
 # Rota para testes
 @app.route('/enviar_emails', methods=['GET'])
 def enviar_emails():
@@ -240,7 +218,7 @@ def enviar_emails():
     enviar_email_async(email, assunto, corpo)
 
     return jsonify({"message": "E-mails enviados com sucesso!"})
-
+"""
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
 def verificar(tipo):
@@ -399,6 +377,11 @@ def cadastrar():
             os.makedirs(pasta_destino, exist_ok=True)
             imagem_path = os.path.join(pasta_destino, nome_imagem)
             imagem.save(imagem_path)
+
+        # Enviar e-mail de boas-vindas
+        assunto = f"Boas-vindas ao Read Raccoon, {nome}!"
+        corpo = f"Ler é uma aventura e nós podemos te ajudar a embarcar nela!"
+        enviar_email_async(email, assunto, corpo)
 
         return jsonify(
             {
@@ -1211,7 +1194,7 @@ def alterar_disponibilidade_livro():
         'SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)',
         (id_livro,))
     id_usuario = cur.fetchall()
-    print(f"Usuário que teve sua reserva cancelada: {id_usuario}")
+    print(f"\nUsuários que tiveram suas reservas canceladas: {id_usuario}")
 
     cur.execute("SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?", (id_livro,))
     reservas_deletar = cur.fetchall()
@@ -1222,15 +1205,32 @@ def alterar_disponibilidade_livro():
         consulta = f"UPDATE RESERVAS r SET r.STATUS = 'CANCELADA' WHERE r.ID_RESERVA IN ({placeholders})"
         cur.execute(consulta, reservas_deletar)
 
+    # Pegar o nome e autor do livro para usar nos e-mails
+    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO = ?", (id_livro, ))
+    dados = cur.fetchone()
+    titulo = dados[0]
+    autor = dados[1]
+
     # Enviar um e-mail para o usuário que possuia reserva
-    # -----------!
+    for usuario in id_usuario[0]:
+        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
+        dados = cur.fetchone()
+        nome = dados[0]
+        email = dados[1]
+
+        assunto = f"{nome}, sua reserva foi cancelada"
+        corpo = (
+f"""Caro leitor, \n
+{titulo}, de {autor}, que fazia parte de sua reserva, foi indisponibilizado por funcionários da biblioteca, sentimos muito por essa inconveniência.""")
+
+        enviar_email_async(email, assunto, corpo)
 
     # Cancelamento de empréstimos
     cur.execute(
         "SELECT ID_USUARIO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO' AND DATA_DEVOLVIDO IS NULL AND ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?)",
         (id_livro,))
     id_usuario = cur.fetchall()
-    print(f"Usuário que teve seu empréstimo cancelado: {id_usuario}")
+    print(f"\nUsuários que tiveram seu empréstimo cancelado: {id_usuario}")
 
     cur.execute("SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
     emprestimos_deletar = cur.fetchall()
@@ -1242,7 +1242,18 @@ def alterar_disponibilidade_livro():
         cur.execute(query, emprestimos_deletar)
 
     # Enviar um e-mail para o usuário que teve o seu empréstimo comprometido
-    # -----------!
+    for usuario in id_usuario[0]:
+        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario, ))
+        dados = cur.fetchone()
+        nome = dados[0]
+        email = dados[1]
+
+        assunto = f"{nome}, seu empréstimo foi cancelado"
+        corpo = (
+f"""Caro leitor, \n
+{titulo}, de {autor}, que fazia parte de seu empréstimo, foi indisponibilizado por funcionários da biblioteca, pedimos que retorne o exemplar o quanto antes.""")
+
+        enviar_email_async(email, assunto, corpo)
 
     # E finalmente, na lista de livros
     cur.execute("UPDATE ACERVO SET DISPONIVEL = FALSE WHERE ID_livro = ?", (id_livro,))
@@ -2320,7 +2331,7 @@ def confirmar_reserva():
     nome = usuario[0]
     email = usuario[1]
 
-    assunto = nome + ", Uma nota de reserva"
+    assunto = nome + ", uma nota de reserva"
     corpo = f"""
     Você fez uma reserva!
     Livros reservados:\n
@@ -2543,7 +2554,7 @@ def confirmar_emprestimo():
 
     # Formatando para o formato desejado "dia-mês-ano"
     data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
-    assunto = nome + ", Uma nota de empréstimo"
+    assunto = nome + ", uma nota de empréstimo"
     corpo = f"""
     Você fez um empréstimo!
     Data de devolução: {data_devolver_formatada}
