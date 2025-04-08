@@ -167,7 +167,6 @@ def buscar_livro_por_id(id):
         "avaliacao": avaliacoes
     }
 
-
 def enviar_email_async(destinatario, assunto, corpo):
     def enviar_email(destinatario, assunto, corpo):
         msg = EmailMessage()
@@ -865,6 +864,7 @@ def get_livros():
 
     cur.close()
     return jsonify(livros), 200
+
 
 @app.route('/livrosadm', methods=["GET"])
 def get_livros_adm():
@@ -1628,18 +1628,21 @@ def avaliar_livro(id):
         id_usuario = payload['id_usuario']
 
         cur = con.cursor()
-        cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario, ))
+        cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario,))
         if cur.fetchone():
             # print("editado")
-            cur.execute("UPDATE AVALIACOES SET VALOR_TOTAL = ? WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (valor, id, id_usuario, ))
+            cur.execute("UPDATE AVALIACOES SET VALOR_TOTAL = ? WHERE ID_LIVRO = ? AND ID_USUARIO = ?",
+                        (valor, id, id_usuario,))
             con.commit()
             cur.close()
             return jsonify({"message": "Avaliado com sucesso! EDITADO"}), 200
         else:
             # print("inserido")
-            cur.execute("INSERT INTO AVALIACOES (VALOR_TOTAL, ID_LIVRO, ID_USUARIO) VALUES (?, ?, ?)", (valor, id, id_usuario))
+            cur.execute("INSERT INTO AVALIACOES (VALOR_TOTAL, ID_LIVRO, ID_USUARIO) VALUES (?, ?, ?)",
+                        (valor, id, id_usuario))
     except Exception as e:
-        return jsonify({"error": f"Erro ao editar registro de avaliação: {e}\n Excluir registros de avaliacoes desse livro do banco de dados"}), 500
+        return jsonify({
+            "error": f"Erro ao editar registro de avaliação: {e}\n Excluir registros de avaliacoes desse livro do banco de dados"}), 500
 
     return jsonify({
         "message": "Avaliado com sucesso! ADICIONADO"
@@ -1678,7 +1681,8 @@ def relatorio_livros_json():
     livros = cur.fetchall()
     cur.close()
 
-    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas", "ano_publicado"]
+    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
+                  "ano_publicado"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
 
@@ -2323,7 +2327,6 @@ def confirmar_reserva():
 
     cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
 
-
     # Enviar o email da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     usuario = cur.fetchone()
@@ -2540,7 +2543,6 @@ def confirmar_emprestimo():
     # Limpa o carrinho
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
-
 
     # Enviar o e-mail da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -2894,3 +2896,117 @@ def atender_reserva(id_reserva):
         "message": "Reserva atendida e empréstimo registrado com sucesso.",
         "data_devolver": data_devolver
     }), 200
+
+
+@app.route("/multas", methods=["GET"])
+def get_all_multas():
+    verificacao = informar_verificacao(2)
+
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT ID_MULTA, ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO, PAGO 
+        FROM MULTAS
+    """)
+    multas = cur.fetchall()
+
+    return jsonify([
+        {
+            "id_multa": m[0],
+            "id_usuario": m[1],
+            "id_emprestimo": m[2],
+            "valor_base": m[3],
+            "valor_acrescimo": m[4],
+            "pago": m[5]
+        }
+        for m in multas
+    ])
+
+
+@app.route("/usuarios/<int:id>/multas", methods=["GET"])
+def get_multas_by_id(id):
+    verificacao = informar_verificacao(2)
+
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT ID_MULTA, ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO, PAGO 
+        FROM MULTAS 
+        WHERE ID_USUARIO = ?""", (id,))
+    multas = cur.fetchall()
+
+    return jsonify([
+        {
+            "id_multa": m[0],
+            "id_usuario": m[1],
+            "id_emprestimo": m[2],
+            "valor_base": m[3],
+            "valor_acrescimo": m[4],
+            "pago": m[5]
+        }
+        for m in multas
+    ])
+
+@app.route('/movimentacoes', methods=['GET'])
+def get_all_movimentacoes():
+    verificacao = informar_verificacao(2)
+
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT E.ID_EMPRESTIMO, U.NOME, A.TITULO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.STATUS
+        FROM EMPRESTIMOS E
+        JOIN USUARIOS U ON E.ID_USUARIO = U.ID_USUARIO
+        JOIN ITENS_EMPRESTIMO IE ON IE.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+        JOIN ACERVO A ON IE.ID_LIVRO = A.ID_LIVRO
+        WHERE E.STATUS IN ('PENDENTE', 'ATIVO', 'CANCELADO', 'DEVOLVIDO')
+    """)
+    emprestimos = cur.fetchall()
+
+    cur.execute("""
+        SELECT R.ID_RESERVA, U.NOME, A.TITULO, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+        FROM RESERVAS R
+        JOIN USUARIOS U ON R.ID_USUARIO = U.ID_USUARIO
+        JOIN ITENS_RESERVA IR ON IR.ID_RESERVA = R.ID_RESERVA
+        JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+        WHERE R.STATUS IN ('PENDENTE', 'EM ESPERA', 'CANCELADA', 'EXPIRADA', 'ATENDIDA')
+    """)
+    reservas = cur.fetchall()
+
+    emprestimos_por_status = {}
+    for e in emprestimos:
+        status = e[5]
+        emprestimos_por_status.setdefault(status, []).append({
+            'id_emprestimo': e[0],
+            'usuario': e[1],
+            'titulo': e[2],
+            'data_retirada': e[3].strftime('%Y-%m-%d') if e[3] else None,
+            'data_devolver': e[4].strftime('%Y-%m-%d') if e[4] else None,
+            'status': e[5]
+        })
+
+    reservas_por_status = {}
+    for r in reservas:
+        status = r[5]
+        reservas_por_status.setdefault(status, []).append({
+            'id_reserva': r[0],
+            'usuario': r[1],
+            'titulo': r[2],
+            'data_criacao': r[3].strftime('%Y-%m-%d') if r[3] else None,
+            'data_validade': r[4].strftime('%Y-%m-%d') if r[4] else None,
+            'status': r[5]
+        })
+
+    return jsonify({
+        'emprestimos': emprestimos_por_status,
+        'reservas': reservas_por_status
+    })
