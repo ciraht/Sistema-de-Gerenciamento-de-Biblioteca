@@ -1579,6 +1579,7 @@ def pesquisar():
         LEFT JOIN LIVRO_TAGS lt ON a.ID_LIVRO = lt.ID_LIVRO
         LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
         WHERE a.titulo CONTAINING ?
+        AND a.DISPONIVEL = TRUE
     """
 
     params = [pesquisa]
@@ -1721,6 +1722,114 @@ def relatorio_usuarios_json():
         "total": len(usuarios_json),
         "usuarios": usuarios_json
     })
+
+
+@app.route('/relatorio/gerar/livros', methods=['GET'])
+def gerar_relatorio_livros():
+    cur = con.cursor()
+    cur.execute("""
+        SELECT 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        ORDER BY a.id_livro;
+    """)
+    livros = cur.fetchall()
+    cur.close()
+
+    contador_livros = len(livros)  # Definir o contador de livros antes do loop
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Disponível", "Descrição", "Idiomas",
+                  "Ano Publicado"]
+
+    for livro in livros:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(50, 5, f"{livro[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
+
+    pdf_path = "relatorio_livros.pdf"
+    pdf.output(pdf_path)
+
+    try:
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
+    except Exception as e:
+        print(e)
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+
+@app.route('/relatorio/gerar/usuarios', methods=['GET'])
+def gerar_relatorio_usuarios():
+    cur = con.cursor()
+    cur.execute("""
+        SELECT
+            id_usuario, 
+            nome, 
+            email, 
+            telefone, 
+            endereco
+        FROM USUARIOS
+        ORDER BY id_usuario;
+    """)
+    usuarios = cur.fetchall()
+    cur.close()
+    contador_usuarios = len(usuarios)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de usuários", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de usuários cadastrados: {contador_usuarios}", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    subtitulos = ["ID", "Nome", "E-mail", "Telefone", "Endereço"]
+
+    for usuario in usuarios:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(50, 5, f"{usuario[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
+
+    pdf_path = "relatorio_usuarios.pdf"
+    pdf.output(pdf_path)
+    try:
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 
 @app.route("/user", methods=["GET"])
