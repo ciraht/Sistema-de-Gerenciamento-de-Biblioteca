@@ -12,6 +12,7 @@ from flask_bcrypt import generate_password_hash, check_password_hash
 from flask_mail import Mail, Message
 from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
+from email.message import EmailMessage
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -190,66 +191,59 @@ def enviar_emails():
 """
 
 
-# view.py
-import smtplib
-import threading
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from flask import current_app as app
-
 def enviar_email_async(destinatario, assunto, corpo):
-    def enviar_email():
-        with app.app_context():
-            # Configurações do e-mail
-            from_email = app.config['MAIL_USERNAME']
-            password = app.config['MAIL_PASSWORD']
-            to_email = destinatario
+    def enviar_email(destinatario, assunto, corpo):
+        msg = EmailMessage()
+        msg['From'] = config.MAIL_USERNAME
+        msg['To'] = destinatario
+        msg['Subject'] = assunto
 
-            # Criando a mensagem
-            msg = MIMEMultipart()
-            msg['From'] = from_email
-            msg['To'] = to_email
-            msg['Subject'] = assunto
+        # HTML formatado
+        html = f"""<!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{assunto}</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <!-- Cabeçalho -->
+                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
+                </div>
 
-            # Corpo do e-mail (HTML) com a codificação UTF-8
-            html = f"""<!DOCTYPE html>
-                                    <html lang="pt-BR">
-                                    <head>
-                                        <meta charset="UTF-8">
-                                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                        <title>E-mail</title>
-                                    </head>
-                                    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; line-height: 1.6; padding: 8px;">
-                                            <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); border-radius: 8px;">
-                                                <div style="background-color: #2473D9; max-width: 600px; margin: 0 auto; padding: 20px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);">
-                                                    <div style="font-size: 24px; font-weight: bold; color: #fff; margin-bottom: 20px;">{assunto}</div>
-                                                </div>
+                <!-- Corpo -->
+                <div style="padding: 32px; color: #333;">
+                    <p style="font-size: 18px; line-height: 1.6;">
+                        {corpo}
+                    </p>
+                </div>
 
-                                                <div style="font-size: 18px; color: #e3e3e3; margin-bottom: 30px; border-radius: 5px; background-color: #4A4DFF; padding:10px;">{corpo}</div>
-                                                <div style="font-size: 12px; color: #272727; text-align: center; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-                                                    &copy; 2025 Libris. Todos os direitos reservados.
-                                                </div>
-                                            </div>
-                                    </body>
-                                </html>"""
+                <!-- Rodapé -->
+                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                    © 2025 Libris. Todos os direitos reservados.<br>
+                    Este é um e-mail automático, por favor, não responda.
+                </div>
+            </div>
+        </body>
+        </html>"""
 
-            # Anexando o conteúdo HTML ao e-mail com a codificação UTF-8
-            msg.attach(MIMEText(html, 'html', _charset='utf-8'))
+        # Versão texto simples como fallback
+        msg.set_content(corpo)
+        msg.add_alternative(html, subtype='html')
 
-            # Configuração do servidor SMTP
-            try:
-                # Conectando ao servidor SMTP
-                server = smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT'])
-                server.starttls()  # Inicia criptografia
-                server.login(from_email, password)  # Login no servidor
-                server.sendmail(from_email, to_email, msg.as_string())  # Envia o e-mail
-                server.quit()  # Fecha a conexão com o servidor
-                print(f"E-mail enviado para {destinatario}")
-            except Exception as e:
-                print(f"Erro ao enviar e-mail: {e}")
+        try:
+            with smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT, timeout=config.MAIL_TIMEOUT) as smtp:
+                smtp.starttls()
+                smtp.login(config.MAIL_USERNAME, config.MAIL_PASSWORD)
+                smtp.send_message(msg)
+                print("E-mail enviado com sucesso!")
+        except Exception as e:
+            print(f"Erro ao enviar e-mail: {e}")
 
-    # Criando uma thread para enviar o e-mail em segundo plano
-    thread = threading.Thread(target=enviar_email)
+    # Correção: passar argumentos corretamente para a thread
+    thread = threading.Thread(target=enviar_email, args=(destinatario, assunto, corpo))
     thread.start()
 
 
@@ -1202,8 +1196,8 @@ def editar_livro(id_livro):
     return jsonify({"message": "Livro atualizado com sucesso."}), 200
 
 
-@app.route('/excluir_livro', methods=["PUT"])
-def livro_delete():
+@app.route('/alterar_disponibilidade', methods=["PUT"])
+def alterar_disponibilidade_livro():
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
@@ -1675,7 +1669,7 @@ def get_livros_id(id):
 
 
 @app.route('/relatorio/livros', methods=['GET'])
-def gerar_relatorio_livros():
+def relatorio_livros_json():
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -1694,46 +1688,18 @@ def gerar_relatorio_livros():
     livros = cur.fetchall()
     cur.close()
 
-    contador_livros = len(livros)  # Definir o contador de livros antes do loop
+    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas", "ano_publicado"]
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
-    pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
-    pdf.ln(5)  # Espaço entre o título e a linha
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
-    pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
 
-    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Disponível", "Descrição", "Idiomas",
-                  "Ano Publicado"]
-
-    for livro in livros:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
-
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{livro[i]}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
-
-    pdf_path = "relatorio_livros.pdf"
-    pdf.output(pdf_path)
-
-    try:
-        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
-    except Exception as e:
-        print(e)
-        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+    return jsonify({
+        "total": len(livros_json),
+        "livros": livros_json
+    })
 
 
 @app.route('/relatorio/usuarios', methods=['GET'])
-def gerar_relatorio_usuarios():
+def relatorio_usuarios_json():
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -1747,39 +1713,14 @@ def gerar_relatorio_usuarios():
     """)
     usuarios = cur.fetchall()
     cur.close()
-    contador_usuarios = len(usuarios)
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de usuários", ln=True, align='C')
-    pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de usuários cadastrados: {contador_usuarios}", ln=True, align='C')
-    pdf.ln(5)  # Espaço entre o título e a linha
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
-    pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
+    subtitulos = ["id", "nome", "email", "telefone", "endereco"]
+    usuarios_json = [dict(zip(subtitulos, u)) for u in usuarios]
 
-    subtitulos = ["ID", "Nome", "E-mail", "Telefone", "Endereço"]
-
-    for usuario in usuarios:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
-
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{usuario[i]}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
-
-    pdf_path = "relatorio_usuarios.pdf"
-    pdf.output(pdf_path)
-    try:
-        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
-    except Exception as e:
-        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+    return jsonify({
+        "total": len(usuarios_json),
+        "usuarios": usuarios_json
+    })
 
 
 @app.route("/user", methods=["GET"])
@@ -2277,13 +2218,13 @@ def confirmar_reserva():
         SELECT ?, ID_LIVRO FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?
     """, (reserva_id, id_usuario))
 
-    cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
-
     # Pegar o nome e autor dos livros para usar no email
     cur.execute(
-        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ir.ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.STATUS = 'PENDENTE'))")
+        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT cr.ID_LIVRO FROM CARRINHO_RESERVAS cr)")
     livros_reservados = cur.fetchall()
-    print(f"LIVROS RESERVADOS: {livros_reservados}")
+
+    cur.execute("DELETE FROM CARRINHO_RESERVAS WHERE ID_USUARIO = ?", (id_usuario,))
+
 
     # Enviar o email da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -2292,18 +2233,19 @@ def confirmar_reserva():
     nome = usuario[0]
     email = usuario[1]
 
-    print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de reserva"
-    corpo = f"""
-Você fez uma reserva!
-Livros reservados:\n
-            """
+    corpo = """
+    <p>Você fez uma <strong>reserva</strong>!</p>
+    <p><strong>Livros reservados:</strong></p>
+    <ul style="padding-left: 20px; font-size: 16px;">
+    """
+
     for livro in livros_reservados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f"\n"
-                  f"• {titulo}, por {autor}\n")
-    print(f"Corpo formatado: {corpo}")
+        corpo += f"<li>{titulo}, por {autor}</li>"
+
+    corpo += "</ul>"
 
     con.commit()
     cur.close()
@@ -2485,6 +2427,12 @@ def confirmar_emprestimo():
                 (id_usuario, data_devolver))
     emprestimo_id = cur.fetchone()[0]
 
+    # Enviar o e-mail com os livros emprestados
+    # Pegar o nome e autor dos livros para usar no email
+    cur.execute(
+        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ce.ID_LIVRO FROM CARRINHO_EMPRESTIMOS ce) ")
+    livros_emprestados = cur.fetchall()
+
     # Adiciona os livros ao empréstimo
     cur.execute("""
         INSERT INTO ITENS_EMPRESTIMO (ID_EMPRESTIMO, ID_LIVRO) 
@@ -2497,12 +2445,6 @@ def confirmar_emprestimo():
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
 
-    # Enviar o e-mail com os livros emprestados
-    # Pegar o nome e autor dos livros para usar no email
-    cur.execute(
-        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ie.ID_LIVRO FROM ITENS_EMPRESTIMO ie WHERE ie.ID_EMPRESTIMO IN (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO'))")
-    livros_emprestados = cur.fetchall()
-    print(f"LIVROS RESERVADOS: {livros_emprestados}")
 
     # Enviar o e-mail da reserva feita para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
@@ -2516,20 +2458,21 @@ def confirmar_emprestimo():
 
     # Formatando para o formato desejado "dia-mês-ano"
     data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
-    print(data_devolver_formatada)
-    print(f"Nome: {nome}, email: {email}")
     assunto = nome + ", Uma nota de empréstimo"
     corpo = f"""
-Você fez um empréstimo!
-Data de devolução: {data_devolver_formatada}
-Livros emprestados:\n
-        """
+    <p>Você fez um <strong>empréstimo</strong>!</p>
+    <p><strong>Data de devolução:</strong> {data_devolver_formatada}</p>
+
+    <p><strong>Livros emprestados:</strong></p>
+    <ul style="padding-left: 20px; font-size: 16px;">
+    """
+
     for livro in livros_emprestados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f"\n" 
-                  f"• {titulo}, por {autor}\n")
-    print(f"Corpo formatado: {corpo}")
+        corpo += f"<li>{titulo}, por {autor}</li>"
+
+    corpo += "</ul>"
 
     enviar_email_async(email, assunto, corpo)
     cur.close()
