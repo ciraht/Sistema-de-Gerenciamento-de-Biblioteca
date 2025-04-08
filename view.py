@@ -224,7 +224,6 @@ def enviar_email_async(destinatario, assunto, corpo):
     thread.start()
 
 
-
 # Rota para testes
 @app.route('/enviar_emails', methods=['GET'])
 def enviar_emails():
@@ -1002,9 +1001,6 @@ def adicionar_livros():
         if tag_id:
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
 
-    # Criando um registro avaliações vazio para poder editar usando a rota de avaliar depois
-    cur.execute("INSERT INTO AVALIACOES (ID_LIVRO, VALOR_TOTAL, QTD_AVALIACOES) VALUES (?, 0, 0)", (livro_id,))
-
     con.commit()
     cur.close()
 
@@ -1608,30 +1604,35 @@ def get_tag(id):
     return jsonify(tags), 200
 
 
-@app.route("/avaliarlivro/<int:id>", methods=["PUT"])
+@app.route("/avaliarlivro/<int:id>", methods=["POST"])
 def avaliar_livro(id):
-    verificacao = informar_verificacao()
-    if verificacao:
-        return verificacao
+    try:
+        verificacao = informar_verificacao()
+        if verificacao:
+            return verificacao
+        payload = informar_verificacao(trazer_pl=True)
 
-    data = request.get_json()
-    valor = data.get("valor")
+        data = request.get_json()
+        valor = data.get("valor")
+        id_usuario = payload['id_usuario']
 
-    cur = con.cursor()
-    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    valor_total = cur.fetchone()[0]
-    cur.execute("SELECT QTD_AVALIACOES FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    qtd_avaliacoes = cur.fetchone()[0]
-    print(f"Valor total: {valor_total}, Avaliações: {qtd_avaliacoes}")
-
-    cur.execute("UPDATE AVALIACOES SET VALOR_TOTAL = ?, QTD_AVALIACOES = ? WHERE ID_LIVRO = ?",
-                (valor_total + valor, qtd_avaliacoes + 1, id))
-    con.commit()
-    cur.close()
+        cur = con.cursor()
+        cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario, ))
+        if cur.fetchone():
+            # print("editado")
+            cur.execute("UPDATE AVALIACOES SET VALOR_TOTAL = ? WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (valor, id, id_usuario, ))
+            con.commit()
+            cur.close()
+            return jsonify({"message": "Avaliado com sucesso! EDITADO"}), 200
+        else:
+            # print("inserido")
+            cur.execute("INSERT INTO AVALIACOES (VALOR_TOTAL, ID_LIVRO, ID_USUARIO) VALUES (?, ?, ?)", (valor, id, id_usuario))
+    except Exception as e:
+        return jsonify({"error": f"Erro ao editar registro de avaliação: {e}\n Excluir registros de avaliacoes desse livro do banco de dados"}), 500
 
     return jsonify({
-        "message": "Avaliado com sucesso."
-    })
+        "message": "Avaliado com sucesso! ADICIONADO"
+    }), 200
 
 
 @app.route("/livros/<int:id>", methods=["GET"])
