@@ -198,40 +198,17 @@ def enviar_email_async(destinatario, assunto, corpo):
         msg['To'] = destinatario
         msg['Subject'] = assunto
 
-        # HTML formatado
-        html = f"""<!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{assunto}</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                <!-- Cabeçalho -->
-                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
-                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
-                </div>
-
-                <!-- Corpo -->
-                <div style="padding: 32px; color: #333;">
-                    <p style="font-size: 18px; line-height: 1.6;">
-                        {corpo}
-                    </p>
-                </div>
-
-                <!-- Rodapé -->
-                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-                    © 2025 Libris. Todos os direitos reservados.<br>
-                    Este é um e-mail automático, por favor, não responda.
-                </div>
-            </div>
-        </body>
-        </html>"""
+        # Texto do e-mail
+        mensagem = f"""
+{assunto}\n
+{corpo}
+\n\n
+© 2025 Libris. Todos os direitos reservados.
+                        """
 
         # Versão texto simples como fallback
         msg.set_content(corpo)
-        msg.add_alternative(html, subtype='html')
+        msg.add_alternative(mensagem)
 
         try:
             with smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT, timeout=config.MAIL_TIMEOUT) as smtp:
@@ -2343,18 +2320,16 @@ def confirmar_reserva():
     email = usuario[1]
 
     assunto = nome + ", Uma nota de reserva"
-    corpo = """
-    <p>Você fez uma <strong>reserva</strong>!</p>
-    <p><strong>Livros reservados:</strong></p>
-    <ul style="padding-left: 20px; font-size: 16px;">
-    """
-
+    corpo = f"""
+    Você fez uma reserva!
+    Livros reservados:\n
+                """
     for livro in livros_reservados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += f"<li>{titulo}, por {autor}</li>"
-
-    corpo += "</ul>"
+        corpo += (f"\n"
+                  f"• {titulo}, por {autor}\n")
+    print(f"Corpo formatado: {corpo}")
 
     con.commit()
     cur.close()
@@ -2569,19 +2544,16 @@ def confirmar_emprestimo():
     data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
     assunto = nome + ", Uma nota de empréstimo"
     corpo = f"""
-    <p>Você fez um <strong>empréstimo</strong>!</p>
-    <p><strong>Data de devolução:</strong> {data_devolver_formatada}</p>
-
-    <p><strong>Livros emprestados:</strong></p>
-    <ul style="padding-left: 20px; font-size: 16px;">
-    """
-
+    Você fez um empréstimo!
+    Data de devolução: {data_devolver_formatada}
+    Livros emprestados:\n
+            """
     for livro in livros_emprestados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += f"<li>{titulo}, por {autor}</li>"
-
-    corpo += "</ul>"
+        corpo += (f"\n"
+                  f"• {titulo}, por {autor}\n")
+    print(f"Corpo formatado: {corpo}")
 
     enviar_email_async(email, assunto, corpo)
     cur.close()
