@@ -3,7 +3,7 @@ import jwt
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
 import smtplib
-import threading
+from threading import Thread
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import config
@@ -174,31 +174,44 @@ def enviar_email_async(destinatario, assunto, corpo):
         msg['To'] = destinatario
         msg['Subject'] = assunto
 
-        # Texto do e-mail
-        mensagem = f"""
-\n
-{corpo}
-\n\n
-© 2025 Read Raccoon. Todos os direitos reservados.
-                        """
+        # Corpo em HTML
+        html = f"""<!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{assunto}</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
+                </div>
+                <div style="padding: 32px; color: #333;">
+                    <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
+                </div>
+                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                    © 2025 Libris. Todos os direitos reservados.<br>
+                    Este é um e-mail automático, por favor, não responda.
+                </div>
+            </div>
+        </body>
+        </html>"""
 
-        # Versão texto simples como fallback
         msg.set_content(corpo)
-        msg.add_alternative(mensagem)
+        msg.add_alternative(html, subtype='html')
 
         try:
-            with smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT, timeout=config.MAIL_TIMEOUT) as smtp:
-                smtp.starttls()
-                smtp.login(config.MAIL_USERNAME, config.MAIL_PASSWORD)
-                smtp.send_message(msg)
-                print("E-mail enviado com sucesso!")
+            server = smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT)
+            server.ehlo()
+            server.starttls()  # Ativa o TLS
+            server.login(config.MAIL_USERNAME, config.MAIL_PASSWORD)
+            server.send_message(msg)
+            server.quit()
         except Exception as e:
             print(f"Erro ao enviar e-mail: {e}")
 
-    # Correção: passar argumentos corretamente para a thread
-    thread = threading.Thread(target=enviar_email, args=(destinatario, assunto, corpo))
-    thread.start()
-
+    Thread(target=enviar_email, args=(destinatario, assunto, corpo), daemon=True).start()
 
 """
 # Rota para testes
@@ -207,8 +220,6 @@ def enviar_emails():
     cur = con.cursor()
     cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'othaviohma2014@gmail.com'")
     usuario = cur.fetchone()
-
-    # Enviar e-mail para todos os usuários ativos
     nome = usuario[1]
     email = usuario[2]
     print(f"Nome: {nome}, email: {email}")
@@ -379,7 +390,28 @@ def cadastrar():
 
         # Enviar e-mail de boas-vindas
         assunto = f"Boas-vindas ao Read Raccoon, {nome}!"
-        corpo = f"Ler é uma aventura e nós podemos te ajudar a embarcar nela!"
+        corpo = """
+        <p style="font-size: 18px; line-height: 1.6; color: #333;">
+            Ler é uma <strong style="color: #1a73e8;">aventura</strong> e nós podemos te ajudar a embarcar nela!
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.5; color: #444; margin-top: 24px;">
+            Com milhares de títulos esperando por você, sua próxima jornada começa agora. <br />
+            Explore novos mundos, descubra autores incríveis e transforme o hábito da leitura em parte da sua rotina.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.5; color: #444; margin-top: 24px;">
+            Acesse sua biblioteca, escolha um livro e deixe a imaginação te levar.
+        </p>
+
+        <div style="text-align: center; margin-top: 32px;">
+            <a href="http://localhost:5173/" target="_blank" 
+               style="background-color: #1a73e8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                Acessar Biblioteca
+            </a>
+        </div>
+        """
+
         enviar_email_async(email, assunto, corpo)
 
         return jsonify(
@@ -1219,9 +1251,30 @@ def alterar_disponibilidade_livro():
         email = dados[1]
 
         assunto = f"{nome}, sua reserva foi cancelada"
-        corpo = (
-f"""Caro leitor, \n
-{titulo}, de {autor}, que fazia parte de sua reserva, foi indisponibilizado por funcionários da biblioteca, sentimos muito por essa inconveniência.""")
+        corpo = f"""
+        <p style="font-size: 18px; line-height: 1.6; color: #333;">
+            Caro leitor,
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Informamos que o livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que estava reservado em seu nome, <strong>foi indisponibilizado</strong> por nossa equipe da biblioteca.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Sentimos muito pelo transtorno causado. Nossa equipe está constantemente trabalhando para melhorar a experiência dos leitores, e em breve novos exemplares estarão disponíveis.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Você pode explorar outros títulos disponíveis acessando sua conta no sistema.
+        </p>
+
+        <div style="text-align: center; margin-top: 32px;">
+            <a href="http://localhost:5173/" target="_blank" 
+               style="background-color: #1a73e8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                Ver outros livros
+            </a>
+        </div>
+        """
 
         enviar_email_async(email, assunto, corpo)
 
@@ -1249,10 +1302,30 @@ f"""Caro leitor, \n
         email = dados[1]
 
         assunto = f"{nome}, seu empréstimo foi cancelado"
-        corpo = (
-f"""Caro leitor, \n
-{titulo}, de {autor}, que fazia parte de seu empréstimo, foi indisponibilizado por funcionários da biblioteca, pedimos que retorne o exemplar o quanto antes.""")
+        corpo = f"""
+        <p style="font-size: 18px; line-height: 1.6; color: #333;">
+            Caro leitor,
+        </p>
 
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Informamos que o exemplar do livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que se encontra atualmente emprestado em seu nome, <strong>foi marcado como indisponível</strong> por nossa equipe da biblioteca.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Solicitamos, por gentileza, que o exemplar seja <strong>devolvido o quanto antes</strong>, para que possamos regularizar a situação e garantir a disponibilidade para outros leitores.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Agradecemos sua compreensão e colaboração.
+        </p>
+
+        <div style="text-align: center; margin-top: 32px;">
+            <a href="http://localhost:5173/" target="_blank"
+               style="background-color: #d93025; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                Devolver exemplar
+            </a>
+        </div>
+        """
         enviar_email_async(email, assunto, corpo)
 
     # E finalmente, na lista de livros
@@ -2335,16 +2408,16 @@ def confirmar_reserva():
     email = usuario[1]
 
     assunto = nome + ", uma nota de reserva"
-    corpo = f"""
-    Você fez uma reserva!
-    Livros reservados:\n
-                """
+    corpo = """
+        <p>Você fez uma <strong>reserva</strong>!</p>
+        <p><strong>Livros reservados:</strong></p>
+        <ul style="padding-left: 20px; font-size: 16px;">
+        """
     for livro in livros_reservados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f"\n"
-                  f"• {titulo}, por {autor}\n")
-    print(f"Corpo formatado: {corpo}")
+        corpo += f"<li>{titulo}, por {autor}</li>"
+    corpo += "</ul>"
 
     con.commit()
     cur.close()
@@ -2558,16 +2631,16 @@ def confirmar_emprestimo():
     data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
     assunto = nome + ", uma nota de empréstimo"
     corpo = f"""
-    Você fez um empréstimo!
-    Data de devolução: {data_devolver_formatada}
-    Livros emprestados:\n
-            """
+        <p>Você fez um <strong>empréstimo</strong>!</p>
+        <p><strong>Data de devolução:</strong> {data_devolver_formatada}</p>
+        <p><strong>Livros emprestados:</strong></p>
+        <ul style="padding-left: 20px; font-size: 16px;">
+        """
     for livro in livros_emprestados:
         titulo = livro[0]
         autor = livro[1]
-        corpo += (f"\n"
-                  f"• {titulo}, por {autor}\n")
-    print(f"Corpo formatado: {corpo}")
+        corpo += f"<li>{titulo}, por {autor}</li>"
+    corpo += "</ul>"
 
     enviar_email_async(email, assunto, corpo)
     cur.close()
@@ -2830,16 +2903,28 @@ def verificar_multas_e_enviar():
     for nome, email, titulo, data_devolucao in emprestimos:
         data_formatada = data_devolucao.strftime("%d/%m/%Y")
         corpo = f"""
-                    Olá {nome},
+        <p style="font-size: 18px; line-height: 1.6; color: #333;">
+            Olá <strong>{nome}</strong>,
+        </p>
 
-                    Este é um lembrete de que o livro "{titulo}" deve ser devolvido até o dia {data_formatada}.
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Este é um lembrete gentil de que o livro <strong style="color: #1a73e8;">"{titulo}"</strong> deve ser devolvido até <strong>{data_formatada}</strong>.
+        </p>
 
-                    Evite multas por atraso! Caso já tenha devolvido, desconsidere este aviso.
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. Caso o livro já tenha sido devolvido, por favor, desconsidere este aviso.
+        </p>
 
-                    Atenciosamente,
-                    Sistema da Biblioteca
-                    """
-        enviar_email_async(email, "📚 Lembrete: Devolução de Livro", corpo)
+        <p style="font-size: 16px; line-height: 1.6; color: #444;">
+            Agradecemos sua atenção e colaboração.
+        </p>
+
+        <p style="font-size: 16px; line-height: 1.6; color: #555;">
+            Atenciosamente,<br>
+            <strong>Sistema da Biblioteca</strong>
+        </p>
+        """
+        enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
 
     cur.close()
 
