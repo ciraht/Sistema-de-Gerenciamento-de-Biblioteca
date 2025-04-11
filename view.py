@@ -27,7 +27,7 @@ def mudardatavalidade(dataemdias):
 def devolucao():
     """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
     data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
-    return data_devolucao.strftime("%Y-%m-%d")
+    return data_devolucao
 
 
 def agendar_tarefas():
@@ -1391,7 +1391,7 @@ def devolver_emprestimo(id):
     # Atualizar o empréstimo como DEVOLVIDO
     cur.execute("""
         UPDATE EMPRESTIMOS 
-        SET DATA_DEVOLVIDO = CURRENT_DATE, 
+        SET DATA_DEVOLVIDO = CURRENT_TIMESTAMP, 
             STATUS = 'DEVOLVIDO'
         WHERE ID_EMPRESTIMO = ?
     """, (id,))
@@ -1412,10 +1412,12 @@ def devolver_emprestimo(id):
             SELECT I.id_reserva
             FROM reservas R
             JOIN ITENS_RESERVA I ON I.ID_RESERVA = R.ID_RESERVA
-            WHERE id_livro = ? AND status = 'Pendente'
+            WHERE id_livro = ? AND status = 'PENDENTE'
             ORDER BY data_CRIACAO ASC
         """, (id_livro,))
         reserva_pendente = cur.fetchone()
+
+        data_validade_format = data_validade.strftime('%Y-%m-%d %H:%M:%S')
 
         # Se houver, atualiza a mais antiga para "EM ESPERA"
         if reserva_pendente:
@@ -2306,8 +2308,8 @@ def verificar_reserva(livro_id):
     cur = con.cursor()
     cur.execute("""
         SELECT QTD_DISPONIVEL, 
-            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_reservas,
-            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
+            (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'EM ESPERA')) AS total_reservas,
+            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
     """, (livro_id, livro_id, livro_id))
@@ -2326,7 +2328,7 @@ def verificar_reserva(livro_id):
                 SELECT 1
                 FROM EMPRESTIMOS E
                 JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
-                WHERE E.STATUS IN ('ATIVO') AND I.id_livro = ? and e.id_usuario = ?;
+                WHERE E.STATUS IN ('ATIVO', 'PENDENTE') AND I.id_livro = ? and e.id_usuario = ?;
             """, (livro_id, payload["id_usuario"]))
     ja_tem_emprestimo = True if cur.fetchone() else False
 
@@ -2516,7 +2518,7 @@ def verificar_emprestimo(livro_id):
             (SELECT COUNT(*) 
              FROM EMPRESTIMOS E 
              INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO 
-             WHERE IE.ID_LIVRO = ? AND E.STATUS = 'ATIVO') AS total_emprestimos
+             WHERE IE.ID_LIVRO = ? AND E.STATUS in ('ATIVO', 'PENDENTE')) AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
     """, (livro_id, livro_id))
@@ -2527,7 +2529,7 @@ def verificar_emprestimo(livro_id):
         SELECT 1 
         FROM EMPRESTIMOS E
         JOIN ITENS_EMPRESTIMO I ON E.ID_EMPRESTIMO = I.ID_EMPRESTIMO
-        WHERE E.STATUS = 'ATIVO' AND E.ID_USUARIO = ? AND I.ID_LIVRO = ?
+        WHERE E.STATUS in ('ATIVO', 'PENDENTE') AND E.ID_USUARIO = ? AND I.ID_LIVRO = ?
     """, (payload["id_usuario"], livro_id))
     ja_tem_emprestimo = cur.fetchone() is not None
 
@@ -2538,9 +2540,7 @@ def verificar_emprestimo(livro_id):
             "disponivel": True
         })
 
-    return jsonify({
-        "disponivel": False
-    })
+    return jsonify({"disponivel": False})
 
 
 # Confirmar empréstimo
@@ -2552,7 +2552,6 @@ def confirmar_emprestimo():
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
-    data_devolver = devolucao()
     cur = con.cursor()
 
     # Verifica se há livros no carrinho
@@ -2581,28 +2580,31 @@ def confirmar_emprestimo():
         cur.close()
         return jsonify({"message": "Você já tem pelo menos um desses livros emprestado."}), 401
 
-    # Verifica se algum livro do carrinho tem reserva pendente ou em espera
+    # Verifica se algum livro do carrinho está reservado
     cur.execute("""
         SELECT 1 
         FROM CARRINHO_EMPRESTIMOS CE
         WHERE CE.ID_LIVRO IN (SELECT IR.ID_LIVRO FROM ITENS_RESERVA IR
             WHERE IR.ID_RESERVA IN (SELECT R.ID_RESERVA FROM RESERVAS R 
                 WHERE STATUS = 'PENDENTE' OR STATUS = 'EM ESPERA')) 
-    """, (id_usuario,))
+    """)
 
     if cur.fetchone():
         cur.close()
         return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
 
-    # Cria o empréstimo
-    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_DEVOLVER) VALUES (?, ?) returning id_emprestimo",
-                (id_usuario, data_devolver))
+    # Cria o empréstimo — data_criacao já está com valor padrão no banco
+    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO", (id_usuario, data_validade))
     emprestimo_id = cur.fetchone()[0]
 
-    # Enviar o e-mail com os livros emprestados
-    # Pegar o nome e autor dos livros para usar no email
-    cur.execute(
-        "SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO IN (SELECT ce.ID_LIVRO FROM CARRINHO_EMPRESTIMOS ce) ")
+    # Pega informações dos livros
+    cur.execute("""
+        SELECT TITULO, AUTOR 
+        FROM ACERVO 
+        WHERE ID_LIVRO IN (
+            SELECT ID_LIVRO FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?
+        )
+    """, (id_usuario,))
     livros_emprestados = cur.fetchall()
 
     # Adiciona os livros ao empréstimo
@@ -2617,35 +2619,25 @@ def confirmar_emprestimo():
     cur.execute("DELETE FROM CARRINHO_EMPRESTIMOS WHERE ID_USUARIO = ?", (id_usuario,))
     con.commit()
 
-    # Enviar o e-mail da reserva feita para o usuário
+    # Enviar o e-mail para o usuário
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     usuario = cur.fetchone()
+    nome, email = usuario
 
-    nome = usuario[0]
-    email = usuario[1]
-
-    # Convertendo a string para um objeto datetime
-    data_objeto = datetime.datetime.strptime(data_devolver, "%Y-%m-%d")
-
-    # Formatando para o formato desejado "dia-mês-ano"
-    data_devolver_formatada = data_objeto.strftime("%d-%m-%Y")
-    assunto = nome + ", uma nota de empréstimo"
+    assunto = nome + ", sua solicitação de empréstimo foi registrada"
     corpo = f"""
-        <p>Você fez um <strong>empréstimo</strong>!</p>
-        <p><strong>Data de devolução:</strong> {data_devolver_formatada}</p>
+        <p>Você fez uma <strong>solicitação de empréstimo</strong>!</p>
         <p><strong>Livros emprestados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
-    for livro in livros_emprestados:
-        titulo = livro[0]
-        autor = livro[1]
+    for titulo, autor in livros_emprestados:
         corpo += f"<li>{titulo}, por {autor}</li>"
-    corpo += "</ul>"
+    corpo += "</ul><p>Agora, aguarde a confirmação do administrador para a retirada.</p>"
 
     enviar_email_async(email, assunto, corpo)
     cur.close()
 
-    return jsonify({"message": "Empréstimo confirmado.", "data_devolver": data_devolver})
+    return jsonify({"message": "Empréstimo registrado com sucesso. Aguarde confirmação para retirada."})
 
 
 @app.route('/editar_senha', methods=["PUT"])
@@ -2982,6 +2974,43 @@ def atender_reserva(id_reserva):
         "data_devolver": data_devolver
     }), 200
 
+@app.route('/emprestimo/<int:id_emprestimo>/atender', methods=["PUT"])
+def atender_emprestimo(id_emprestimo):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT e.id_usuario, i.id_livro 
+        FROM emprestimos e
+        join itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
+        WHERE e.id_emprestimo = ? AND e.status = 'PENDENTE'
+    """, (id_emprestimo,))
+    dados = cur.fetchone()
+
+    if not dados:
+        cur.close()
+        return jsonify({"message": "Emprestimo não encontrado ou já foi atendido/cancelado."}), 404
+
+    id_usuario, id_livro = dados
+    data_devolver = devolucao()
+
+    cur.execute("""
+        UPDATE emprestimos 
+        SET status = 'ATIVO', data_devolver = ?, data_retirada = CURRENT_TIMESTAMP
+        WHERE id_emprestimo = ?
+    """, (data_devolver, id_emprestimo))
+
+    con.commit()
+    cur.close()
+
+    return jsonify({
+        "message": "Emprestimo atendido e registrado com sucesso.",
+        "data_devolver": data_devolver
+    }), 200
+
 
 @app.route("/multas", methods=["GET"])
 def get_all_multas():
@@ -3041,57 +3070,87 @@ def get_multas_by_id(id):
 @app.route('/movimentacoes', methods=['GET'])
 def get_all_movimentacoes():
     verificacao = informar_verificacao(2)
-
     if verificacao:
         return verificacao
 
     cur = con.cursor()
 
+    # Consulta de empréstimos com títulos agrupados
     cur.execute("""
-        SELECT E.ID_EMPRESTIMO, U.NOME, A.TITULO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.STATUS
+        SELECT 
+            E.ID_EMPRESTIMO, 
+            U.NOME, 
+            LIST(A.TITULO, ', ') AS TITULOS,
+            E.DATA_CRIACAO, 
+            E.DATA_RETIRADA, 
+            E.DATA_DEVOLVER, 
+            E.DATA_DEVOLVIDO, 
+            E.DATA_VALIDADE,
+            E.STATUS
         FROM EMPRESTIMOS E
         JOIN USUARIOS U ON E.ID_USUARIO = U.ID_USUARIO
         JOIN ITENS_EMPRESTIMO IE ON IE.ID_EMPRESTIMO = E.ID_EMPRESTIMO
         JOIN ACERVO A ON IE.ID_LIVRO = A.ID_LIVRO
         WHERE E.STATUS IN ('PENDENTE', 'ATIVO', 'CANCELADO', 'DEVOLVIDO')
+        GROUP BY E.ID_EMPRESTIMO, U.NOME, E.DATA_CRIACAO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO, E.DATA_VALIDADE, E.STATUS
     """)
     emprestimos = cur.fetchall()
 
+    # Consulta de reservas com títulos agrupados
     cur.execute("""
-        SELECT R.ID_RESERVA, U.NOME, A.TITULO, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+        SELECT 
+            R.ID_RESERVA, 
+            U.NOME, 
+            LIST(A.TITULO, ', ') AS TITULOS,
+            R.DATA_CRIACAO, 
+            R.DATA_VALIDADE, 
+            R.STATUS
         FROM RESERVAS R
         JOIN USUARIOS U ON R.ID_USUARIO = U.ID_USUARIO
         JOIN ITENS_RESERVA IR ON IR.ID_RESERVA = R.ID_RESERVA
         JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
         WHERE R.STATUS IN ('PENDENTE', 'EM ESPERA', 'CANCELADA', 'EXPIRADA', 'ATENDIDA')
+        GROUP BY R.ID_RESERVA, U.NOME, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
     """)
     reservas = cur.fetchall()
 
-    emprestimos_por_status = {}
+    movimentacoes = []
+
     for e in emprestimos:
-        status = e[5]
-        emprestimos_por_status.setdefault(status, []).append({
-            'id_emprestimo': e[0],
+        movimentacoes.append({
+            'tipo': 'emprestimo',
+            'id': e[0],
             'usuario': e[1],
             'titulo': e[2],
-            'data_retirada': e[3].strftime('%Y-%m-%d') if e[3] else None,
-            'data_devolver': e[4].strftime('%Y-%m-%d') if e[4] else None,
-            'status': e[5]
+            'data_evento': e[3],  # Para ordenação
+            'data_evento_str': e[3].isoformat(timespec='minutes') if e[3] else None,
+            'data_criacao': e[3].isoformat(timespec='minutes') if e[3] else None,
+            'data_retirada': e[4].isoformat(timespec='minutes') if e[4] else None,
+            'data_devolver': e[5].isoformat(timespec='minutes') if e[5] else None,
+            'data_devolvida': e[6].isoformat(timespec='minutes') if e[6] else None,
+            'data_validade': e[7].isoformat(timespec='minutes') if e[7] else None,
+            'status': e[8]
         })
 
-    reservas_por_status = {}
     for r in reservas:
-        status = r[5]
-        reservas_por_status.setdefault(status, []).append({
-            'id_reserva': r[0],
+        movimentacoes.append({
+            'tipo': 'reserva',
+            'id': r[0],
             'usuario': r[1],
             'titulo': r[2],
-            'data_criacao': r[3].strftime('%Y-%m-%d') if r[3] else None,
-            'data_validade': r[4].strftime('%Y-%m-%d') if r[4] else None,
+            'data_evento': r[3],  # Para ordenação
+            'data_evento_str': r[3].isoformat(timespec='minutes') if r[3] else None,
+            'data_criacao': r[3].isoformat(timespec='minutes') if r[3] else None,
+            'data_validade': r[4].isoformat(timespec='minutes') if r[4] else None,
             'status': r[5]
         })
 
-    return jsonify({
-        'emprestimos': emprestimos_por_status,
-        'reservas': reservas_por_status
-    })
+    # Ordenar pela data_evento (mais recente primeiro)
+    movimentacoes.sort(key=lambda x: x['data_evento'], reverse=True)
+
+    # Remover o campo datetime bruto (não serializável)
+    for m in movimentacoes:
+        del m['data_evento']
+
+    cur.close()
+    return jsonify(movimentacoes)
