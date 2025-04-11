@@ -8,7 +8,7 @@ DB_USER = 'sysdba'
 DB_PASSWORD = 'sysdba'
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 
-# Configurações do Flask-Mail
+# Configurações de e-mail
 MAIL_SERVER = 'smtp.gmail.com'
 MAIL_PORT = 587
 MAIL_USERNAME = 'libris.no.reply@gmail.com'

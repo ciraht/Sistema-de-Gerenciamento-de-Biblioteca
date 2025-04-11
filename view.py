@@ -1,4 +1,6 @@
 import os
+from email.mime.image import MIMEImage
+from email.utils import make_msgid
 import jwt
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
@@ -13,6 +15,9 @@ from flask_mail import Mail, Message
 from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
+from pixqrcode import PixQrCode
+from io import BytesIO
+import base64
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -167,12 +172,14 @@ def buscar_livro_por_id(id):
         "avaliacao": avaliacoes
     }
 
-def enviar_email_async(destinatario, assunto, corpo):
-    def enviar_email(destinatario, assunto, corpo):
+def enviar_email_async(destinatario, assunto, corpo, imagem1=None):
+    def enviar_email(destinatario, assunto, corpo, imagem1=None):
         msg = EmailMessage()
         msg['From'] = config.MAIL_USERNAME
         msg['To'] = destinatario
         msg['Subject'] = assunto
+
+        img_cid = make_msgid(domain="rr.com")[1:-1]  # remove < >
 
         # Corpo em HTML
         html = f"""<!DOCTYPE html>
@@ -191,7 +198,31 @@ def enviar_email_async(destinatario, assunto, corpo):
                     <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
                 </div>
                 <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-                    © 2025 Libris. Todos os direitos reservados.<br>
+                    © 2025 Read Raccoon. Todos os direitos reservados.<br>
+                    Este é um e-mail automático, por favor, não responda.
+                </div>
+            </div>
+        </body>
+        </html>""" if not imagem1 else f"""<!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{assunto}</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
+                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
+                </div>
+                <div style="padding: 32px; color: #333;">
+                    <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
+                </div>
+                <div style="padding: 32px; color: #333;">
+                    <img src="cid:{img_cid}" alt="QR Code Pix" style="width:200px;">
+                </div>
+                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
+                    © 2025 Read Raccoon. Todos os direitos reservados.<br>
                     Este é um e-mail automático, por favor, não responda.
                 </div>
             </div>
@@ -201,6 +232,13 @@ def enviar_email_async(destinatario, assunto, corpo):
         msg.set_content(corpo)
         msg.add_alternative(html, subtype='html')
 
+        # Adiciona imagem como anexo embutido
+        if imagem1:
+            img = MIMEImage(imagem1.read(), _subtype="png")
+            img.add_header('Content-ID', f'<{img_cid}>')
+            img.add_header('Content-Disposition', 'inline', filename="qrcode.png")
+            msg.get_payload()[1].add_related(img)
+
         try:
             server = smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT)
             server.ehlo()
@@ -208,26 +246,41 @@ def enviar_email_async(destinatario, assunto, corpo):
             server.login(config.MAIL_USERNAME, config.MAIL_PASSWORD)
             server.send_message(msg)
             server.quit()
+            print(f"Mensagem enviada com sucesso para {destinatario}")
         except Exception as e:
             print(f"Erro ao enviar e-mail: {e}")
 
-    Thread(target=enviar_email, args=(destinatario, assunto, corpo), daemon=True).start()
+    Thread(target=enviar_email, args=(destinatario, assunto, corpo, imagem1), daemon=True).start()
 
 """
-# Rota para testes
-@app.route('/enviar_emails', methods=['GET'])
+# Rota para testes de e-mail
+@app.route('/email_teste', methods=['GET'])
 def enviar_emails():
     cur = con.cursor()
     cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'othaviohma2014@gmail.com'")
     usuario = cur.fetchone()
     nome = usuario[1]
     email = usuario[2]
+    valor = 100 # Isso é R$ 1,00
+    pix = PixQrCode("Tharic", "tharictalon@gmail.com", "Birigui", "100")
+    print(f"Esse pix é válido: {pix.is_valid()}")
+    imagem = pix.export_base64()
+
+    # Corrigido: gerar imagem em memória
+    import base64
+    from io import BytesIO
+    imagem_base64 = pix.export_base64()
+    imagem_base64 = imagem_base64 + '=' * (-len(imagem_base64) % 4)
+    imagem_bytes = base64.b64decode(imagem_base64)
+    qr_image = BytesIO(imagem_bytes)
+
+
     print(f"Nome: {nome}, email: {email}")
     assunto = 'Olá, ' + nome
-    corpo = f'Olá {nome},\n\nEste é um e-mail de exemplo enviado via Flask.'
-    enviar_email_async(email, assunto, corpo)
+    corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix,'
+    enviar_email_async(email, assunto, corpo, qr_image)
 
-    return jsonify({"message": "E-mails enviados com sucesso!"})
+    return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
