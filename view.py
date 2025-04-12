@@ -1,23 +1,18 @@
+import mimetypes
 import os
-from email.mime.image import MIMEImage
 from email.utils import make_msgid
 import jwt
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
 import smtplib
 from threading import Thread
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 import config
 from main import app, con
 from flask_bcrypt import generate_password_hash, check_password_hash
-from flask_mail import Mail, Message
 from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
 from pixqrcode import PixQrCode
-from io import BytesIO
-import base64
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -172,8 +167,9 @@ def buscar_livro_por_id(id):
         "avaliacao": avaliacoes
     }
 
-def enviar_email_async(destinatario, assunto, corpo, imagem1=None):
-    def enviar_email(destinatario, assunto, corpo, imagem1=None):
+
+def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
+    def enviar_email(destinatario, assunto, corpo, qr_code=None):
         msg = EmailMessage()
         msg['From'] = config.MAIL_USERNAME
         msg['To'] = destinatario
@@ -203,41 +199,23 @@ def enviar_email_async(destinatario, assunto, corpo, imagem1=None):
                 </div>
             </div>
         </body>
-        </html>""" if not imagem1 else f"""<!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{assunto}</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
-                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
-                </div>
-                <div style="padding: 32px; color: #333;">
-                    <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
-                </div>
-                <div style="padding: 32px; color: #333;">
-                    <img src="cid:{img_cid}" alt="QR Code Pix" style="width:200px;">
-                </div>
-                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-                    © 2025 Read Raccoon. Todos os direitos reservados.<br>
-                    Este é um e-mail automático, por favor, não responda.
-                </div>
-            </div>
-        </body>
         </html>"""
 
         msg.set_content(corpo)
         msg.add_alternative(html, subtype='html')
 
-        # Adiciona imagem como anexo embutido
-        if imagem1:
-            img = MIMEImage(imagem1.read(), _subtype="png")
-            img.add_header('Content-ID', f'<{img_cid}>')
-            img.add_header('Content-Disposition', 'inline', filename="qrcode.png")
-            msg.get_payload()[1].add_related(img)
+        # Adicionando o qr_code como anexo, caso houver um na mensagem
+        if qr_code:
+            caminho_arquivo = f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{qr_code}"
+            # Detecta o tipo MIME do arquivo
+            tipo_mime, _ = mimetypes.guess_type(caminho_arquivo)
+            tipo_principal, subtipo = tipo_mime.split('/')
+
+            with open(caminho_arquivo, 'rb') as arquivo: # rb = read binary
+                msg.add_attachment(arquivo.read(),
+                                   maintype=tipo_principal,
+                                   subtype=subtipo,
+                                   filename='qr_code.png')
 
         try:
             server = smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT)
@@ -250,35 +228,44 @@ def enviar_email_async(destinatario, assunto, corpo, imagem1=None):
         except Exception as e:
             print(f"Erro ao enviar e-mail: {e}")
 
-    Thread(target=enviar_email, args=(destinatario, assunto, corpo, imagem1), daemon=True).start()
+    Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
 """
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails():
     cur = con.cursor()
-    cur.execute("SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = 'othaviohma2014@gmail.com'")
-    usuario = cur.fetchone()
+    EMAIL_PARA_RECEBER_RESULTADOS = 'othaviohma2014@gmail.com'
+    cur.execute(f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
+    try:
+        usuario = cur.fetchone()
+        cur.close()
+    except Exception as e:
+        return jsonify({"error": e})
+
+    # COISAS DE QR CODE DE PIX
     nome = usuario[1]
     email = usuario[2]
-    valor = 100 # Isso é R$ 1,00
-    pix = PixQrCode("Tharic", "tharictalon@gmail.com", "Birigui", "100")
+    valor = 251  # Isso é R$ 2,51
+    pix = PixQrCode("Teste", "tharictalon@gmail.com", "Birigui", "100")
     print(f"Esse pix é válido: {pix.is_valid()}")
-    imagem = pix.export_base64()
 
-    # Corrigido: gerar imagem em memória
-    import base64
-    from io import BytesIO
-    imagem_base64 = pix.export_base64()
-    imagem_base64 = imagem_base64 + '=' * (-len(imagem_base64) % 4)
-    imagem_bytes = base64.b64decode(imagem_base64)
-    qr_image = BytesIO(imagem_bytes)
+    # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
+    if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            os.makedirs(app.config['UPLOAD_FOLDER'])
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+        os.makedirs(pasta_destino, exist_ok=True)
 
+    # Verificando se já tem uma imagem para esse valor
+    if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
+        pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+        print("Novo quick response code de pix criado")
 
     print(f"Nome: {nome}, email: {email}")
     assunto = 'Olá, ' + nome
-    corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix,'
-    enviar_email_async(email, assunto, corpo, qr_image)
+    corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix nos anexos'
+    # enviar_email_async(email, assunto, corpo, f"{valor}.png")
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
@@ -1291,7 +1278,7 @@ def alterar_disponibilidade_livro():
         cur.execute(consulta, reservas_deletar)
 
     # Pegar o nome e autor do livro para usar nos e-mails
-    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO = ?", (id_livro, ))
+    cur.execute("SELECT TITULO, AUTOR FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
     dados = cur.fetchone()
     titulo = dados[0]
     autor = dados[1]
@@ -1349,7 +1336,7 @@ def alterar_disponibilidade_livro():
 
     # Enviar um e-mail para o usuário que teve o seu empréstimo comprometido
     for usuario in id_usuario[0]:
-        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario, ))
+        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
         dados = cur.fetchone()
         nome = dados[0]
         email = dados[1]
@@ -2647,7 +2634,8 @@ def confirmar_emprestimo():
         return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
 
     # Cria o empréstimo — data_criacao já está com valor padrão no banco
-    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO", (id_usuario, data_validade))
+    cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO",
+                (id_usuario, data_validade, ))
     emprestimo_id = cur.fetchone()[0]
 
     # Pega informações dos livros
@@ -3027,6 +3015,7 @@ def atender_reserva(id_reserva):
         "data_devolver": data_devolver
     }), 200
 
+
 @app.route('/emprestimo/<int:id_emprestimo>/atender', methods=["PUT"])
 def atender_emprestimo(id_emprestimo):
     verificacao = informar_verificacao(2)
@@ -3119,6 +3108,7 @@ def get_multas_by_id(id):
         }
         for m in multas
     ])
+
 
 @app.route('/movimentacoes', methods=['GET'])
 def get_all_movimentacoes():
