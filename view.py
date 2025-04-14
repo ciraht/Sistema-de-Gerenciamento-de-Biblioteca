@@ -32,7 +32,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=verificar_multas_e_enviar, trigger='cron', hour=9, minute=0)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=9, minute=0)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=9, minute=1)
     scheduler.start()
 
 
@@ -211,7 +212,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
             tipo_mime, _ = mimetypes.guess_type(caminho_arquivo)
             tipo_principal, subtipo = tipo_mime.split('/')
 
-            with open(caminho_arquivo, 'rb') as arquivo: # rb = read binary
+            with open(caminho_arquivo, 'rb') as arquivo:  # rb = read binary
                 msg.add_attachment(arquivo.read(),
                                    maintype=tipo_principal,
                                    subtype=subtipo,
@@ -229,6 +230,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
             print(f"Erro ao enviar e-mail: {e}")
 
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
+
 
 """
 # Rota para testes de e-mail
@@ -269,6 +271,7 @@ def enviar_emails():
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
+
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
 def verificar(tipo):
@@ -2635,7 +2638,7 @@ def confirmar_emprestimo():
 
     # Cria o empréstimo — data_criacao já está com valor padrão no banco
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO",
-                (id_usuario, data_validade, ))
+                (id_usuario, data_validade,))
     emprestimo_id = cur.fetchone()[0]
 
     # Pega informações dos livros
@@ -2917,7 +2920,7 @@ def get_user_by_id(id):
     })
 
 
-def verificar_multas_e_enviar():
+def avisar_para_evitar_multas():
     cur = con.cursor()
     hoje = datetime.datetime.now().date()
     limite = hoje + datetime.timedelta(days=4)
@@ -2929,6 +2932,7 @@ def verificar_multas_e_enviar():
         JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
         JOIN acervo a ON i.id_livro = a.id_livro
         WHERE e.status = 'ATIVO' AND e.data_devolver <= ?
+        AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
     """, (limite,))
 
     emprestimos = cur.fetchall()
@@ -2960,6 +2964,97 @@ def verificar_multas_e_enviar():
         enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
 
     cur.close()
+
+
+def multar_quem_precisa():
+    cur = con.cursor()
+    cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+    data_atual = cur.fetchone()[0]
+
+    # Adicionando multas ao banco de dados
+    cur.execute("""
+                SELECT u.id_usuario, e.id_emprestimo
+                FROM emprestimos e
+                JOIN usuarios u ON e.id_usuario = u.id_usuario
+                JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
+                JOIN acervo a ON i.id_livro = a.id_livro
+                WHERE e.status = 'ATIVO' AND e.data_devolver < ?
+                AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m)
+            """, (data_atual,))
+
+    tangoes = cur.fetchall()
+
+    cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
+        FROM VALORES
+        WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES);
+        """)
+
+    valores = cur.fetchone()
+    print(f"Valores: {valores}")
+
+    try:
+        valor_base = valores[0]
+        valor_ac = valores[1]
+    except Exception:
+        cur.close()
+        raise
+
+    for tangao in tangoes:
+        cur.execute("INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
+                    (tangao[0], tangao[1], valor_base, valor_ac))
+
+    con.commit()
+
+    # Verificando multas para enviar em e-mail para todos os usuários que precisam
+    cur.execute("""
+            SELECT u.nome, u.email
+            FROM USUARIOS u
+            WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+        """)
+
+    tangoes = cur.fetchall()
+
+    for tangao in tangoes:
+        # Pegar a quantidade de dias que passou
+        cur.execute("SELECT DATA_ADICIONADO FROM MULTAS WHERE ID_USUARIO = ? AND PAGO = FALSE")
+        try:
+            data_add = cur.fetchone()[0]
+        except Exception:
+            cur.close()
+            raise
+
+        dias_passados = data_atual - data_add
+        print(dias_passados)
+
+        valor = valor_base + valor_ac * dias_passados
+        valor2 = valor
+        valor = str(valor).strip(',')
+        valor = int(valor)
+
+        nome = tangao[0]
+        email = tangao[1]
+
+        # Gerando código de pix para enviar para o e-mail de quem tem multa
+        pix = PixQrCode("Read Raccoon", "tharictalon@gmail.com", "Birigui", str(valor))
+
+        # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
+        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
+            if not os.path.exists(app.config['UPLOAD_FOLDER']):
+                os.makedirs(app.config['UPLOAD_FOLDER'])
+            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+            os.makedirs(pasta_destino, exist_ok=True)
+
+        # Verificando se já tem uma imagem para esse valor
+        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
+            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+            # print("Novo quick response code de pix criado")
+
+        assunto = f'Aviso de multa'
+        corpo = f"""
+                    Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. O valor é de R${valor} e 
+                    vai aumentar {valor_ac} a cada dia, pague o quanto antes.
+                """
+        enviar_email_async(email, assunto, corpo, f"{valor}.png")
 
 
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
@@ -3197,3 +3292,15 @@ def get_all_movimentacoes():
 
     cur.close()
     return jsonify(movimentacoes)
+
+
+@app.route("/valor/criar", methods=["POST"])
+def criar_valor():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+    data = request.get_json()
+    valor_base = data.get('valor_base')
+    valor_ac = data.get('valor_acrescimo')
+    cur = con.cursor()
+    cur.execute("INSERT INTO VALORES (VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?)", (valor_base, valor_ac,))
