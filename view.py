@@ -32,8 +32,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=16, minute=53)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=16, minute=57)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=17, minute=8)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=17, minute=8)
     scheduler.start()
 
 
@@ -232,8 +232,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
-
-
+"""
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails():
@@ -271,7 +270,7 @@ def enviar_emails():
     enviar_email_async(email, assunto, corpo, f"{valor}.png")
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
-
+"""
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -3034,6 +3033,9 @@ def multar_quem_precisa():
 
             valor = valor_base + valor_ac * dias_passados
             valor2 = valor
+            valor2 = str(valor2)
+            valor2.replace('.', ', ')
+            print(f"Valor2: {valor2}")
             # print(f"Valor antes da formatação: {valor}")
             valor = str(valor)
             # print(f"Valor string: {valor}")
@@ -3063,7 +3065,8 @@ def multar_quem_precisa():
 
             assunto = f'Aviso de multa'
             corpo = f"""
-                        Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. O valor é de R${valor} e 
+                        Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. 
+                        O valor é de R$ {valor2} e 
                         vai aumentar {valor_ac} a cada dia, pague o quanto antes.
                     """
             enviar_email_async(email, assunto, corpo, f"{valor}.png")
@@ -3072,7 +3075,6 @@ def multar_quem_precisa():
         raise
     finally:
         cur.close()
-
 
 
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
