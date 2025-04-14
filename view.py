@@ -32,8 +32,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=15, minute=18)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=15, minute=19)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=16, minute=53)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=16, minute=57)
     scheduler.start()
 
 
@@ -227,12 +227,13 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
             server.quit()
             print(f"Mensagem enviada com sucesso para {destinatario}")
         except Exception as e:
-            print(f"Erro ao enviar e-mail: {e}")
+            print(f"Erro ao enviar e-mail: {e} \nTrazendo mensagem de erro completa")
+            raise
 
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
 
-"""
+
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails():
@@ -267,10 +268,10 @@ def enviar_emails():
     print(f"Nome: {nome}, email: {email}")
     assunto = 'Olá, ' + nome
     corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix nos anexos'
-    # enviar_email_async(email, assunto, corpo, f"{valor}.png")
+    enviar_email_async(email, assunto, corpo, f"{valor}.png")
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
-"""
+
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -2922,144 +2923,156 @@ def get_user_by_id(id):
 
 def avisar_para_evitar_multas():
     print('\navisar_para_evitar_multas\n')
+
     cur = con.cursor()
-    hoje = datetime.datetime.now().date()
-    limite = hoje + datetime.timedelta(days=4)
 
-    cur.execute("""
-        SELECT u.nome, u.email, a.titulo, e.data_devolver
-        FROM emprestimos e
-        JOIN usuarios u ON e.id_usuario = u.id_usuario
-        JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
-        JOIN acervo a ON i.id_livro = a.id_livro
-        WHERE e.status = 'ATIVO' AND e.data_devolver <= ?
-        AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
-    """, (limite,))
+    try:
+        hoje = datetime.datetime.now().date()
+        limite = hoje + datetime.timedelta(days=4)
 
-    emprestimos = cur.fetchall()
+        cur.execute("""
+            SELECT u.nome, u.email, a.titulo, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
+            JOIN acervo a ON i.id_livro = a.id_livro
+            WHERE e.status = 'ATIVO' AND e.data_devolver <= ?
+            AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+        """, (limite,))
 
-    for nome, email, titulo, data_devolucao in emprestimos:
-        data_formatada = data_devolucao.strftime("%d/%m/%Y")
-        corpo = f"""
-        <p style="font-size: 18px; line-height: 1.6; color: #333;">
-            Olá <strong>{nome}</strong>,
-        </p>
+        emprestimos = cur.fetchall()
 
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Este é um lembrete gentil de que o livro <strong style="color: #1a73e8;">"{titulo}"</strong> deve ser devolvido até <strong>{data_formatada}</strong>.
-        </p>
+        for nome, email, titulo, data_devolucao in emprestimos:
+            data_formatada = data_devolucao.strftime("%d/%m/%Y")
+            corpo = f"""
+            <p style="font-size: 18px; line-height: 1.6; color: #333;">
+                Olá <strong>{nome}</strong>,
+            </p>
 
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. Caso o livro já tenha sido devolvido, por favor, desconsidere este aviso.
-        </p>
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Este é um lembrete gentil de que o livro <strong style="color: #1a73e8;">"{titulo}"</strong> deve ser devolvido até <strong>{data_formatada}</strong>.
+            </p>
 
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Agradecemos sua atenção e colaboração.
-        </p>
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. Caso o livro já tenha sido devolvido, por favor, desconsidere este aviso.
+            </p>
 
-        <p style="font-size: 16px; line-height: 1.6; color: #555;">
-            Atenciosamente,<br>
-            <strong>Sistema da Biblioteca</strong>
-        </p>
-        """
-        enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Agradecemos sua atenção e colaboração.
+            </p>
 
-    cur.close()
+            <p style="font-size: 16px; line-height: 1.6; color: #555;">
+                Atenciosamente,<br>
+                <strong>Sistema da Biblioteca</strong>
+            </p>
+            """
+            enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
+
+    except Exception:
+        raise
+    finally:
+        cur.close()
 
 
 def multar_quem_precisa():
     print('\nmultar_quem_precisa\n')
+
     cur = con.cursor()
-    cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
-    data_atual = cur.fetchone()[0]
-
-    # Adicionando multas ao banco de dados
-    cur.execute("""
-                SELECT u.id_usuario, e.id_emprestimo
-                FROM emprestimos e
-                JOIN usuarios u ON e.id_usuario = u.id_usuario
-                WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
-                AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
-            """, (data_atual,))
-
-    tangoes = cur.fetchall()
-
-    cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
-        FROM VALORES
-        WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES);
-        """)
-
-    valores = cur.fetchone()
-    print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
     try:
-        valor_base = valores[0]
-        valor_ac = valores[1]
-    except Exception:
-        cur.close()
-        raise
+        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+        data_atual = cur.fetchone()[0]
 
-    for tangao in tangoes:
-        cur.execute("INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
-                    (tangao[0], tangao[1], valor_base, valor_ac))
+        # Adicionando multas ao banco de dados
+        cur.execute("""
+                    SELECT u.id_usuario, e.id_emprestimo
+                    FROM emprestimos e
+                    JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+                    AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+                """, (data_atual,))
 
-    con.commit()
+        tangoes = cur.fetchall()
 
-    # Verificando multas para enviar em e-mail para todos os usuários que precisam
-    cur.execute("""
-            SELECT u.nome, u.email, u.id_usuario
-            FROM USUARIOS u
-            WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+        cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
+            FROM VALORES
+            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES);
         """)
 
-    tangoes = cur.fetchall()
+        valores = cur.fetchone()
+        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
-    for tangao in tangoes:
-        # Pegar a quantidade de dias que passou
-        print(tangao[2])
-        cur.execute("SELECT DATA_ADICIONADO FROM MULTAS WHERE ID_USUARIO = ? AND PAGO = FALSE", (tangao[2]))
-        try:
-            data_add = cur.fetchone()[0]
-        except Exception:
-            cur.close()
-            raise
+        valor_base = valores[0]
+        valor_ac = valores[1]
 
-        dias_passados = data_atual - data_add
-        print(dias_passados)
+        for tangao in tangoes:
+            cur.execute("INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
+                        (tangao[0], tangao[1], valor_base, valor_ac))
 
-        valor = valor_base + valor_ac * dias_passados
-        valor2 = valor
-        valor = str(valor).strip(',')
-        valor = int(valor)
+        con.commit()
 
-        print(valor)
+        # Verificando multas para enviar em e-mail para todos os usuários que precisam
+        cur.execute("""
+                SELECT u.nome, u.email, u.id_usuario
+                FROM USUARIOS u
+                WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+            """)
 
-        nome = tangao[0]
-        email = tangao[1]
+        tangoes = cur.fetchall()
+        print(tangoes)
 
-        # Gerando código de pix para enviar para o e-mail de quem tem multa
-        pix = PixQrCode("Read Raccoon", "tharictalon@gmail.com", "Birigui", str(valor))
+        for tangao in tangoes:
+            # Pegar a quantidade de dias que passou
+            cur.execute("SELECT DATA_ADICIONADO FROM MULTAS WHERE ID_USUARIO = ? AND PAGO = FALSE", (tangao[2],))
+            try:
+                data_add = cur.fetchone()[0]
+            except Exception:
+                raise
 
-        # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
-        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
-            if not os.path.exists(app.config['UPLOAD_FOLDER']):
-                os.makedirs(app.config['UPLOAD_FOLDER'])
-            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
-            os.makedirs(pasta_destino, exist_ok=True)
+            dias_passados = (data_atual - data_add).days
+            print(dias_passados)
 
-        # Verificando se já tem uma imagem para esse valor
-        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
-            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
-            # print("Novo quick response code de pix criado")
+            valor = valor_base + valor_ac * dias_passados
+            valor2 = valor
+            # print(f"Valor antes da formatação: {valor}")
+            valor = str(valor)
+            # print(f"Valor string: {valor}")
+            valor = valor.replace('.', '')
+            # print(f"Valor depois da formatação: {valor}")
+            valor = int(valor)
 
-        assunto = f'Aviso de multa'
-        corpo = f"""
-                    Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. O valor é de R${valor} e 
-                    vai aumentar {valor_ac} a cada dia, pague o quanto antes.
-                """
-        enviar_email_async(email, assunto, corpo, f"{valor}.png")
+            print(valor)
 
-    cur.close()
+            nome = tangao[0]
+            email = tangao[1]
+
+            # Gerando código de pix para enviar para o e-mail de quem tem multa
+            pix = PixQrCode("Read Raccoon", "tharictalon@gmail.com", "Birigui", str(valor))
+
+            # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
+            if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
+                if not os.path.exists(app.config['UPLOAD_FOLDER']):
+                    os.makedirs(app.config['UPLOAD_FOLDER'])
+                pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+                os.makedirs(pasta_destino, exist_ok=True)
+
+            # Verificando se já tem uma imagem para esse valor
+            if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
+                pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+                # print("Novo quick response code de pix criado")
+
+            assunto = f'Aviso de multa'
+            corpo = f"""
+                        Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. O valor é de R${valor} e 
+                        vai aumentar {valor_ac} a cada dia, pague o quanto antes.
+                    """
+            enviar_email_async(email, assunto, corpo, f"{valor}.png")
+
+    except Exception:
+        raise
+    finally:
+        cur.close()
+
 
 
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])

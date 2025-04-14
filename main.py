@@ -22,4 +22,4 @@ from view import *
 
 if __name__ == '__main__':
     agendar_tarefas()
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=False)  # Sem debug porque ele faz as funções do scheduler rodar duas vezes
