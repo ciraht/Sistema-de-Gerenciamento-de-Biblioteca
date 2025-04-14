@@ -32,8 +32,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=9, minute=0)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=9, minute=1)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=15, minute=18)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=15, minute=19)
     scheduler.start()
 
 
@@ -2921,6 +2921,7 @@ def get_user_by_id(id):
 
 
 def avisar_para_evitar_multas():
+    print('\navisar_para_evitar_multas\n')
     cur = con.cursor()
     hoje = datetime.datetime.now().date()
     limite = hoje + datetime.timedelta(days=4)
@@ -2967,6 +2968,7 @@ def avisar_para_evitar_multas():
 
 
 def multar_quem_precisa():
+    print('\nmultar_quem_precisa\n')
     cur = con.cursor()
     cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
     data_atual = cur.fetchone()[0]
@@ -2976,10 +2978,8 @@ def multar_quem_precisa():
                 SELECT u.id_usuario, e.id_emprestimo
                 FROM emprestimos e
                 JOIN usuarios u ON e.id_usuario = u.id_usuario
-                JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
-                JOIN acervo a ON i.id_livro = a.id_livro
-                WHERE e.status = 'ATIVO' AND e.data_devolver < ?
-                AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m)
+                WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+                AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
             """, (data_atual,))
 
     tangoes = cur.fetchall()
@@ -2990,7 +2990,7 @@ def multar_quem_precisa():
         """)
 
     valores = cur.fetchone()
-    print(f"Valores: {valores}")
+    print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
     try:
         valor_base = valores[0]
@@ -3007,7 +3007,7 @@ def multar_quem_precisa():
 
     # Verificando multas para enviar em e-mail para todos os usuários que precisam
     cur.execute("""
-            SELECT u.nome, u.email
+            SELECT u.nome, u.email, u.id_usuario
             FROM USUARIOS u
             WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
         """)
@@ -3016,7 +3016,8 @@ def multar_quem_precisa():
 
     for tangao in tangoes:
         # Pegar a quantidade de dias que passou
-        cur.execute("SELECT DATA_ADICIONADO FROM MULTAS WHERE ID_USUARIO = ? AND PAGO = FALSE")
+        print(tangao[2])
+        cur.execute("SELECT DATA_ADICIONADO FROM MULTAS WHERE ID_USUARIO = ? AND PAGO = FALSE", (tangao[2]))
         try:
             data_add = cur.fetchone()[0]
         except Exception:
@@ -3030,6 +3031,8 @@ def multar_quem_precisa():
         valor2 = valor
         valor = str(valor).strip(',')
         valor = int(valor)
+
+        print(valor)
 
         nome = tangao[0]
         email = tangao[1]
@@ -3055,6 +3058,8 @@ def multar_quem_precisa():
                     vai aumentar {valor_ac} a cada dia, pague o quanto antes.
                 """
         enviar_email_async(email, assunto, corpo, f"{valor}.png")
+
+    cur.close()
 
 
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
@@ -3304,3 +3309,6 @@ def criar_valor():
     valor_ac = data.get('valor_acrescimo')
     cur = con.cursor()
     cur.execute("INSERT INTO VALORES (VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?)", (valor_base, valor_ac,))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Novo valor criado com sucesso!"}), 200
