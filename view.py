@@ -227,6 +227,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
+
 """
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
@@ -266,7 +267,6 @@ def enviar_emails():
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
-
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -1781,6 +1781,74 @@ def get_livros_id(id):
     return jsonify(livro)
 
 
+@app.route('/relatorio/multaspendentes', methods=['GET'])
+def relatorio_multas_json():
+    cur = con.cursor()
+    cur.execute("""
+                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+                    FROM emprestimos e
+                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    INNER JOIN MULTAS m ON e.ID_USUARIO = m.ID_USUARIO
+                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+                    AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+                    ORDER BY m.DATA_ADICIONADO
+                    """)
+
+    multas_pendentes = cur.fetchall()
+
+    cur.close()
+
+    # subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
+    # "ano_publicado"]
+
+    # livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
+    return jsonify({
+        "total": len(multas_pendentes),
+        "multas_pendentes": multas_pendentes
+    })
+
+
+@app.route('/relatorio/livrosfaltando', methods=['GET'])
+def relatorio_livros_faltando_json():
+    cur = con.cursor()
+    cur.execute("""
+            SELECT 
+                a.id_livro, 
+                a.titulo, 
+                COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,  
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
+            INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
+            WHERE e.STATUS = 'ATIVO'
+            GROUP BY 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,  
+                a.ANO_PUBLICADO
+            ORDER BY a.id_livro
+        """)
+    livros = cur.fetchall()
+    cur.close()
+
+    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado"]
+
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
+    return jsonify({
+        "total": len(livros_json),
+        "livros": livros_json
+    })
+
+
 @app.route('/relatorio/livros', methods=['GET'])
 def relatorio_livros_json():
     cur = con.cursor()
@@ -1844,15 +1912,29 @@ def gerar_relatorio_livros():
         SELECT 
             a.id_livro, 
             a.titulo, 
+            COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
             a.autor, 
             a.CATEGORIA, 
             a.ISBN, 
             a.QTD_DISPONIVEL, 
             a.DESCRICAO, 
-            a.idiomas, 
+            a.IDIOMAS, 
             a.ANO_PUBLICADO
         FROM ACERVO a
-        ORDER BY a.id_livro;
+        INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
+        INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
+        WHERE e.STATUS = 'ATIVO'
+        GROUP BY 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.IDIOMAS, 
+            a.ANO_PUBLICADO
+        ORDER BY a.id_livro
     """)
     livros = cur.fetchall()
     cur.close()
@@ -1871,8 +1953,10 @@ def gerar_relatorio_livros():
     pdf.ln(5)  # Espaço após a linha
     pdf.set_font("Arial", size=12)
 
-    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Disponível", "Descrição", "Idiomas",
-                  "Ano Publicado"]
+    subtitulos = ["ID", "Titulo", "Quantidade Emprestada", "Autor", "Categoria", "ISBN", "Quantidade Total",
+                  "Descrição", "Idiomas", "Ano Publicado"]
+
+    print(len(livros))
 
     for livro in livros:
         for i in range(len(subtitulos)):
@@ -1942,6 +2026,58 @@ def gerar_relatorio_usuarios():
     try:
         return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
     except Exception as e:
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+
+@app.route('/relatorio/gerar/multas', methods=['GET'])
+def gerar_relatorio_multas():
+    cur = con.cursor()
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.data_devolver
+            FROM emprestimos e
+            INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
+            INNER JOIN MULTAS m ON e.ID_USUARIO = m.ID_USUARIO
+            WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+            AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
+            ORDER BY m.DATA_ADICIONADO DESC
+        """)
+    tangoes = cur.fetchall()
+    cur.close()
+
+    total_multados = len(tangoes)  # Definir o contador de livros antes do loop
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de multas", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    subtitulos = ["Email", "Telefone", "Nome", "Data Que Era Para Devolver"]
+
+    for multado in tangoes:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(100, 5, f"{multado[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
+
+    pdf_path = "relatorio_multas.pdf"
+    pdf.output(pdf_path)
+
+    try:
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
+    except Exception as e:
+        print(e)
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
 
 
@@ -2991,7 +3127,7 @@ def multar_quem_precisa():
                     JOIN usuarios u ON e.id_usuario = u.id_usuario
                     WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
                     AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
-                """, (data_atual,))
+                """)
 
         tangoes = cur.fetchall()
 
@@ -3007,8 +3143,9 @@ def multar_quem_precisa():
         valor_ac = valores[1]
 
         for tangao in tangoes:
-            cur.execute("INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
-                        (tangao[0], tangao[1], valor_base, valor_ac))
+            cur.execute(
+                "INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
+                (tangao[0], tangao[1], valor_base, valor_ac))
 
         con.commit()
 
