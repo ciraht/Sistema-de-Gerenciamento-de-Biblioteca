@@ -15,17 +15,22 @@ from pixqrcode import PixQrCode
 
 senha_secreta = app.config['SECRET_KEY']
 
-PERIODO_EMPRESTIMO = datetime.timedelta(weeks=2)
-data_validade = (datetime.datetime.now() + datetime.timedelta(days=3))
-
-
-def mudardatavalidade(dataemdias):
-    data_validade = (datetime.datetime.now() + datetime.timedelta(days=dataemdias))
+def configuracoes():
+    cur = con.cursor()
+    cur.execute("""
+                    SELECT *
+                    FROM CONFIGURACOES
+                    WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
+                    """)
+    config_mais_recente = cur.fetchone()
+    cur.close()
+    return config_mais_recente
 
 
 def devolucao():
-    """Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual."""
-    data_devolucao = datetime.datetime.now() + PERIODO_EMPRESTIMO
+    # Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual.
+    dias_emprestimo = configuracoes()[1]
+    data_devolucao = datetime.datetime.now() + datetime.timedelta(days=dias_emprestimo)
     return data_devolucao
 
 
@@ -267,6 +272,61 @@ def enviar_emails():
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
+
+
+@app.route('/configuracoes', methods=["GET"])
+def trazer_configuracoes():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    todas = data.get('todas')  # True ou False, ou nada
+
+    if not todas:
+        cur = con.cursor()
+        cur.execute("""
+                SELECT *
+                FROM CONFIGURACOES
+                WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
+                """)
+        config_mais_recente = cur.fetchone()
+        cur.close()
+        return jsonify({'configuracoes_mais_recentes': config_mais_recente}), 200
+
+    cur = con.cursor()
+    cur.execute("SELECT * FROM CONFIGURACOES")
+    configuracoes = cur.fetchall()
+    cur.close()
+    return jsonify({'configuracoes': configuracoes}), 200
+
+
+@app.route('/configuracoes/criar/', methods=["POST"])
+def criar_verificacoes():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    dias_emp = data.get('dias_validade_emprestimo')
+    dias_emp_b = data.get('dias_validade_buscar')
+    dias_res = data.get('dias_validade_reserva')
+    dias_res_a = data.get('dias_validade_reserva_atender')
+
+    if not all([dias_emp, dias_emp_b, dias_res, dias_res_a]):
+        return jsonify({"message": "Todos os campos são obrigatórios"}), 401
+
+    cur = con.cursor()
+    cur.execute("""
+                INSERT INTO CONFIGURACOES (DIAS_VALIDADE_EMPRESTIMO, 
+                DIAS_VALIDADE_EMPRESTIMO_BUSCAR, 
+                DIAS_VALIDADE_RESERVA_ATENDER, 
+                DIAS_VALIDADE_RESERVA)
+                VALUES (?, ?, ?, ?)
+                """, (dias_emp, dias_emp_b, dias_res_a, dias_res))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Novas configurações adicionadas com sucesso"}), 200
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -1462,6 +1522,7 @@ def devolver_emprestimo(id):
         """, (id_livro,))
         reserva_pendente = cur.fetchone()
 
+        data_validade = devolucao()
         data_validade_format = data_validade.strftime('%Y-%m-%d %H:%M:%S')
 
         # Se houver, atualiza a mais antiga para "EM ESPERA"
@@ -2775,6 +2836,7 @@ def confirmar_emprestimo():
         return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
 
     # Cria o empréstimo — data_criacao já está com valor padrão no banco
+    data_validade = devolucao()
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO",
                 (id_usuario, data_validade,))
     emprestimo_id = cur.fetchone()[0]
@@ -3133,7 +3195,7 @@ def multar_quem_precisa():
 
         cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
             FROM VALORES
-            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES);
+            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES)
         """)
 
         valores = cur.fetchone()
