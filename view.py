@@ -3312,16 +3312,31 @@ def atender_emprestimo(id_emprestimo):
 
 @app.route("/multas", methods=["GET"])
 def get_all_multas():
-    verificacao = informar_verificacao(2)
-
+    verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
 
     cur = con.cursor()
 
     cur.execute("""
-        SELECT ID_MULTA, ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO, PAGO 
-        FROM MULTAS
+        SELECT 
+            M.ID_MULTA,
+            M.ID_USUARIO,
+            U.NOME,
+            U.EMAIL,
+            M.ID_EMPRESTIMO,
+            M.VALOR_BASE,
+            M.VALOR_ACRESCIMO,
+            M.PAGO,
+            LIST(A.TITULO, ', ') AS TITULOS
+        FROM MULTAS M
+        JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
+        JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
+        JOIN ITENS_EMPRESTIMO I ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+        JOIN ACERVO A ON A.ID_LIVRO = I.ID_LIVRO
+        GROUP BY 
+            M.ID_MULTA, M.ID_USUARIO, U.NOME, U.EMAIL, 
+            M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
     """)
     multas = cur.fetchall()
 
@@ -3329,42 +3344,111 @@ def get_all_multas():
         {
             "id_multa": m[0],
             "id_usuario": m[1],
-            "id_emprestimo": m[2],
-            "valor_base": m[3],
-            "valor_acrescimo": m[4],
-            "pago": m[5]
+            "nome": m[2],
+            "email": m[3],
+            "id_emprestimo": m[4],
+            "valor_base": m[5],
+            "valor_acrescimo": m[6],
+            "pago": bool(m[7]),
+            "titulos": m[8]
         }
         for m in multas
     ])
 
-
 @app.route("/usuarios/<int:id>/multas", methods=["GET"])
 def get_multas_by_id(id):
     verificacao = informar_verificacao(2)
-
     if verificacao:
         return verificacao
 
     cur = con.cursor()
 
     cur.execute("""
-        SELECT ID_MULTA, ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO, PAGO 
-        FROM MULTAS 
-        WHERE ID_USUARIO = ?""", (id,))
+        SELECT 
+            M.ID_MULTA,
+            M.ID_USUARIO,
+            U.NOME,
+            U.EMAIL,
+            M.ID_EMPRESTIMO,
+            M.VALOR_BASE,
+            M.VALOR_ACRESCIMO,
+            M.PAGO,
+            LIST(A.TITULO, ', ') AS TITULOS
+        FROM MULTAS M
+        JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
+        JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
+        JOIN ITENS_EMPRESTIMO I ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+        JOIN ACERVO A ON A.ID_LIVRO = I.ID_LIVRO
+        WHERE M.ID_USUARIO = ?
+        GROUP BY 
+            M.ID_MULTA, M.ID_USUARIO, U.NOME, U.EMAIL, 
+            M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
+    """, (id,))
     multas = cur.fetchall()
 
     return jsonify([
         {
             "id_multa": m[0],
             "id_usuario": m[1],
-            "id_emprestimo": m[2],
-            "valor_base": m[3],
-            "valor_acrescimo": m[4],
-            "pago": m[5]
+            "nome": m[2],
+            "email": m[3],
+            "id_emprestimo": m[4],
+            "valor_base": m[5],
+            "valor_acrescimo": m[6],
+            "pago": bool(m[7]),
+            "titulos": m[8]
         }
         for m in multas
     ])
 
+@app.route("/usuarios/multas", methods=["GET"])
+def get_multas_for_user():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+
+    id = payload["id_usuario"]
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT 
+            M.ID_MULTA,
+            M.ID_USUARIO,
+            U.NOME,
+            U.EMAIL,
+            M.ID_EMPRESTIMO,
+            M.VALOR_BASE,
+            M.VALOR_ACRESCIMO,
+            M.PAGO,
+            LIST(A.TITULO, ', ') AS TITULOS
+        FROM MULTAS M
+        JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
+        JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
+        JOIN ITENS_EMPRESTIMO I ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+        JOIN ACERVO A ON A.ID_LIVRO = I.ID_LIVRO
+        WHERE M.ID_USUARIO = ?
+        GROUP BY 
+            M.ID_MULTA, M.ID_USUARIO, U.NOME, U.EMAIL, 
+            M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
+    """, (id,))
+    multas = cur.fetchall()
+
+    return jsonify([
+        {
+            "id_multa": m[0],
+            "id_usuario": m[1],
+            "nome": m[2],
+            "email": m[3],
+            "id_emprestimo": m[4],
+            "valor_base": m[5],
+            "valor_acrescimo": m[6],
+            "pago": bool(m[7]),
+            "titulos": m[8]
+        }
+        for m in multas
+    ])
 
 @app.route('/movimentacoes', methods=['GET'])
 def get_all_movimentacoes():
