@@ -173,6 +173,17 @@ def buscar_livro_por_id(id):
     }
 
 
+def criar_notificacao(id_usuario, mensagem):
+    cur = con.cursor()
+    try:
+        cur.execute("INSERT INTO NOTIFICACOES (ID_USUARIO, MESSAGE) VALUES (?, ?)",
+                    (id_usuario, mensagem, ))  # "NÃO LIDA" é o valor padrão de STATUS
+    except Exception:
+        raise
+    finally:
+        cur.close()
+
+
 def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
     def enviar_email(destinatario, assunto, corpo, qr_code=None):
         msg = EmailMessage()
@@ -283,22 +294,26 @@ def trazer_configuracoes():
     data = request.get_json()
     todas = data.get('todas')  # True ou False, ou nada
 
-    if not todas:
+    try:
         cur = con.cursor()
-        cur.execute("""
-                SELECT *
-                FROM CONFIGURACOES
-                WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
-                """)
-        config_mais_recente = cur.fetchone()
-        cur.close()
-        return jsonify({'configuracoes_mais_recentes': config_mais_recente}), 200
+        if not todas:
 
-    cur = con.cursor()
-    cur.execute("SELECT * FROM CONFIGURACOES")
-    configuracoes = cur.fetchall()
-    cur.close()
-    return jsonify({'configuracoes': configuracoes}), 200
+            cur.execute("""
+                    SELECT *
+                    FROM CONFIGURACOES
+                    WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
+                    """)
+            config_mais_recente = cur.fetchone()
+            return jsonify({'configuracoes_mais_recentes': config_mais_recente}), 200
+
+
+        cur.execute("SELECT * FROM CONFIGURACOES")
+        configuracoes = cur.fetchall()
+        return jsonify({'configuracoes': configuracoes}), 200
+    except Exception:
+        raise
+    finally:
+        cur.close()
 
 
 @app.route('/configuracoes/criar/', methods=["POST"])
@@ -337,6 +352,41 @@ def verificar(tipo):
         return verificacao
 
     return jsonify({'mensagem': 'Verificação concluída com sucesso.'}), 200
+
+
+@app.route('/notificacoes/ler/<int:id>', methods=["PUT"])
+def ler_notificacao(id_notificacao):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+
+        id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
+        cur.execute("UPDATE NOTIFICACOES SET STATUS = LIDA WHERE ID_NOTIFICACAO = ? AND ID_USUARIO = ?",
+                    (id_notificacao, id_usuario, ))
+        con.commit()
+        return 200
+    except Exception:
+        raise
+    finally:
+        cur.close()
+
+
+@app.route('/notificacoes', methods=["GET"])
+def trazer_notificacoes():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+    id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
+    cur = con.cursor()
+    cur.execute("SELECT NOTIFICACOES WHERE ID_USUARIO = ? AND STATUS = 'NÃO LIDA'",
+                (id_usuario, ))
+    notificacoes = cur.fetchall()
+    con.commit()
+    cur.close()
+    return jsonify({"notificacoes": notificacoes})
 
 
 @app.route('/cadastro', methods=["POST"])
