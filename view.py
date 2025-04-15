@@ -1,6 +1,5 @@
 import mimetypes
 import os
-from email.utils import make_msgid
 import jwt
 import datetime
 from flask import jsonify, request, send_file, send_from_directory
@@ -32,8 +31,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=17, minute=8)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=17, minute=8)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=9, minute=0)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=9, minute=1)
     scheduler.start()
 
 
@@ -176,8 +175,6 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
         msg['To'] = destinatario
         msg['Subject'] = assunto
 
-        img_cid = make_msgid(domain="rr.com")[1:-1]  # remove < >
-
         # Corpo em HTML
         html = f"""<!DOCTYPE html>
         <html lang="pt-BR">
@@ -219,9 +216,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
                                    filename='qr_code.png')
 
         try:
-            server = smtplib.SMTP(config.MAIL_SERVER, config.MAIL_PORT)
-            server.ehlo()
-            server.starttls()  # Ativa o TLS
+            server = smtplib.SMTP_SSL(config.MAIL_SERVER, 465)  # Usando SMTP_SSL para criptografia imediata
             server.login(config.MAIL_USERNAME, config.MAIL_PASSWORD)
             server.send_message(msg)
             server.quit()
@@ -271,6 +266,7 @@ def enviar_emails():
 
     return jsonify({"message": "E-mail teste enviado com sucesso!"})
 """
+
 
 
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
@@ -1026,6 +1022,9 @@ def adicionar_livros():
         cur.close()
         return jsonify({"error": "ISBN já cadastrada."}), 404
 
+    if qtd_disponivel < 1:
+        return jsonify({"message": "A quantidade disponível não pode ser menor que 1"}), 401
+
     if int(qtd_disponivel) < 1:
         cur.close()
         return jsonify({"error": "Quantidade disponível precisa ser maior que 1."}), 401
@@ -1149,6 +1148,9 @@ def editar_livro(id_livro):
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         cur.close()
         return jsonify({"message": "Todos os campos são obrigatórios."}), 401
+
+    if qtd_disponivel < 1:
+        return jsonify({"message": "A quantidade disponível não pode ser menor que 1"}), 401
 
     # Verificando se os dados novos já existem na DataBase
     isbnvelho = acervo_data[3].lower()
@@ -2926,46 +2928,46 @@ def avisar_para_evitar_multas():
     cur = con.cursor()
 
     try:
-        hoje = datetime.datetime.now().date()
-        limite = hoje + datetime.timedelta(days=4)
 
         cur.execute("""
-            SELECT u.nome, u.email, a.titulo, e.data_devolver
-            FROM emprestimos e
-            JOIN usuarios u ON e.id_usuario = u.id_usuario
-            JOIN itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
-            JOIN acervo a ON i.id_livro = a.id_livro
-            WHERE e.status = 'ATIVO' AND e.data_devolver <= ?
-            AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
-        """, (limite,))
+            SELECT 
+                CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) AS dias_diferenca, u.EMAIL, u.NOME, e.DATA_DEVOLVER
+                FROM 
+                EMPRESTIMOS e
+            INNER JOIN USUARIOS u ON e.ID_USUARIO = u.ID_USUARIO
+            WHERE 
+                STATUS = 'ATIVO'
+                AND CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) <= 4
+        """)
 
-        emprestimos = cur.fetchall()
+        dias_que_faltam = cur.fetchall()
 
-        for nome, email, titulo, data_devolucao in emprestimos:
-            data_formatada = data_devolucao.strftime("%d/%m/%Y")
+        for dias, email, nome, data_devolver in dias_que_faltam:
+            data_formatada = data_devolver.strftime("%d/%m/%Y")
             corpo = f"""
             <p style="font-size: 18px; line-height: 1.6; color: #333;">
                 Olá <strong>{nome}</strong>,
             </p>
 
             <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Este é um lembrete gentil de que o livro <strong style="color: #1a73e8;">"{titulo}"</strong> deve ser devolvido até <strong>{data_formatada}</strong>.
+                Este é um lembrete de que os livros de um emprestimo seu devem ser devolvidos até <strong>{data_formatada}</strong>.
             </p>
 
             <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. Caso o livro já tenha sido devolvido, por favor, desconsidere este aviso.
+                Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. 
+                Caso os livros do empréstimo já tenham sido devolvidos, por favor, notifique um bibliotecário.
+            </p>
+            
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Este aviso é feito diariamente, por favor resolva isto em até <strong>{dias}</strong> dias.
             </p>
 
             <p style="font-size: 16px; line-height: 1.6; color: #444;">
                 Agradecemos sua atenção e colaboração.
             </p>
-
-            <p style="font-size: 16px; line-height: 1.6; color: #555;">
-                Atenciosamente,<br>
-                <strong>Sistema da Biblioteca</strong>
-            </p>
             """
             enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
+        print("Função de aviso foi executada inteira")
 
     except Exception:
         raise
@@ -3013,8 +3015,10 @@ def multar_quem_precisa():
         # Verificando multas para enviar em e-mail para todos os usuários que precisam
         cur.execute("""
                 SELECT u.nome, u.email, u.id_usuario
-                FROM USUARIOS u
+                    FROM USUARIOS u
+                INNER JOIN EMPRESTIMOS e ON u.ID_USUARIO = e.ID_USUARIO
                 WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+                    AND e.STATUS = 'ATIVO'
             """)
 
         tangoes = cur.fetchall()

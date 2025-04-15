@@ -10,7 +10,7 @@ UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 
 # Configurações de e-mail
 MAIL_SERVER = 'smtp.gmail.com'
-MAIL_PORT = 587
+MAIL_PORT = 465
 MAIL_USERNAME = 'libris.no.reply@gmail.com'
 MAIL_PASSWORD = 'zdln ukay dedg dkdo'
 MAIL_TIMEOUT = 60
