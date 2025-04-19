@@ -3736,6 +3736,36 @@ def criar_valor():
     cur.close()
     return jsonify({"message": "Novo valor criado com sucesso!"}), 200
 
+@app.route("/valores", methods=["GET"])
+def get_valores():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+    cur = con.cursor()
+    cur.execute("""
+        SELECT FIRST 1
+            ID_VALOR,
+            DATA_ADICIONADO,
+            VALOR_BASE,
+            VALOR_ACRESCIMO
+        FROM VALORES
+        ORDER BY DATA_ADICIONADO DESC
+    """)
+    valores = cur.fetchone()
+    cur.close()
+
+    if not valores:
+        return jsonify({"message": "Nenhum valor encontrado."}), 404
+
+    id_valor, data_adicionado, valor_base, valor_acrescimo = valores
+
+    return jsonify({
+        "id_valor": id_valor,
+        "data_adicionado": data_adicionado,
+        "valor_base": float(valor_base),
+        "valor_acrescimo": float(valor_acrescimo)
+    }), 200
+
 @app.route('/multa/<int:id_multa>/atender', methods=["PUT"])
 def atender_multa(id_multa):
     verificacao = informar_verificacao(2)
