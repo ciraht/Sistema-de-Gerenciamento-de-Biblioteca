@@ -36,8 +36,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=9, minute=0)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=9, minute=1)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=16, minute=20)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=16, minute=20)
     scheduler.start()
 
 
@@ -145,12 +145,13 @@ def buscar_livro_por_id(id):
     tags = cur.fetchall()
     selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
 
-    cur.execute("SELECT VALOR_TOTAL FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+    cur.execute("SELECT SUM(VALOR_TOTAL) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     valor_total = cur.fetchone()
+
     cur.execute("SELECT COUNT(*) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
     qtd = cur.fetchone()
 
-    if valor_total and qtd and qtd[0] != 0:
+    if valor_total and valor_total[0] is not None and qtd and qtd[0] != 0:
         avaliacoes = round((valor_total[0] / qtd[0]), 2)
     else:
         avaliacoes = 0.00
@@ -1893,13 +1894,13 @@ def get_livros_id(id):
 
 
 @app.route('/relatorio/multaspendentes', methods=['GET'])
-def relatorio_multas_json():
+def relatorio_multas_pendentes_json():
     cur = con.cursor()
     cur.execute("""
                     SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
                     FROM emprestimos e
-                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
-                    INNER JOIN MULTAS m ON e.ID_USUARIO = m.ID_USUARIO
+                    JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
                     WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
                     AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
                     ORDER BY m.DATA_ADICIONADO
@@ -1917,6 +1918,25 @@ def relatorio_multas_json():
     return jsonify({
         "total": len(multas_pendentes),
         "multas_pendentes": multas_pendentes
+    })
+
+@app.route('/relatorio/multas', methods=['GET'])
+def relatorio_multas_json():
+    cur = con.cursor()
+    cur.execute("""
+                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+                    FROM emprestimos e
+                    JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+                    WHERE e.data_devolver < CURRENT_DATE
+                    ORDER BY m.DATA_ADICIONADO
+                    """)
+    multas = cur.fetchall()
+
+    cur.close()
+
+    return jsonify({
+        "multas": multas
     })
 
 
@@ -2146,8 +2166,8 @@ def gerar_relatorio_multas():
     cur.execute("""
             SELECT u.email, u.telefone, u.nome, e.data_devolver
             FROM emprestimos e
-            INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
-            INNER JOIN MULTAS m ON e.ID_USUARIO = m.ID_USUARIO
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
             WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
             AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
             ORDER BY m.DATA_ADICIONADO DESC
@@ -2183,6 +2203,57 @@ def gerar_relatorio_multas():
         pdf.ln(7)
 
     pdf_path = "relatorio_multas.pdf"
+    pdf.output(pdf_path)
+
+    try:
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
+    except Exception as e:
+        print(e)
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+@app.route('/relatorio/gerar/multas/pendentes', methods=['GET'])
+def gerar_relatorio_multas_pendentes():
+    cur = con.cursor()
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+            AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
+            ORDER BY m.DATA_ADICIONADO DESC
+        """)
+    tangoes = cur.fetchall()
+    cur.close()
+
+    total_multados = len(tangoes)  # Definir o contador de livros antes do loop
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de multas", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    subtitulos = ["Email", "Telefone", "Nome", "Data Que Era Para Devolver"]
+
+    for multado in tangoes:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(100, 5, f"{multado[i]}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
+
+    pdf_path = "relatorio_multas_pendentes.pdf"
     pdf.output(pdf_path)
 
     try:
@@ -3664,3 +3735,64 @@ def criar_valor():
     con.commit()
     cur.close()
     return jsonify({"message": "Novo valor criado com sucesso!"}), 200
+
+@app.route('/multa/<int:id_multa>/atender', methods=["PUT"])
+def atender_multa(id_multa):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    cur.execute("""
+        SELECT id_multa, pago FROM multas WHERE id_multa = ?
+    """, (id_multa,))
+    multa = cur.fetchone()
+
+    if not multa:
+        cur.close()
+        return jsonify({"message": "Multa não encontrada."}), 404
+
+    _, pago = multa
+    if pago:
+        cur.close()
+        return jsonify({"message": "Multa já está paga."}), 400
+
+    # Atualiza a multa como paga
+    cur.execute("""
+        UPDATE multas
+        SET pago = TRUE
+        WHERE id_multa = ?
+    """, (id_multa,))
+
+    con.commit()
+    cur.close()
+
+    return jsonify({"message": "Multa paga com sucesso."}), 200
+
+
+@app.route("/livros/<int:id_livro>/avaliacao", methods=["GET"])
+def get_avaliacao_by_user(id_livro):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id_logado = payload["id_usuario"]
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT valor_total
+        FROM avaliacoes
+        WHERE id_livro = ? AND id_usuario = ?
+    """, (id_livro, id_logado))
+
+    resultado = cur.fetchone()
+    cur.close()
+
+    if not resultado:
+        return jsonify({"message": "Usuário ainda não avaliou este livro."}), 404
+
+    return jsonify({
+        "valor_total": int(resultado[0])
+    }), 200
