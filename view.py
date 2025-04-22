@@ -355,7 +355,7 @@ def verificar(tipo):
     return jsonify({'mensagem': 'Verificação concluída com sucesso.'}), 200
 
 
-@app.route('/notificacoes/ler/<int:id>', methods=["PUT"])
+@app.route('/notificacoes/ler/<int:id_notificacao>', methods=["PUT"])
 def ler_notificacao(id_notificacao):
     verificacao = informar_verificacao()
     if verificacao:
@@ -365,10 +365,10 @@ def ler_notificacao(id_notificacao):
     try:
 
         id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
-        cur.execute("UPDATE NOTIFICACOES SET STATUS = LIDA WHERE ID_NOTIFICACAO = ? AND ID_USUARIO = ?",
+        cur.execute("UPDATE NOTIFICACOES SET STATUS = 'LIDA' WHERE ID_NOTIFICACAO = ? AND ID_USUARIO = ?",
                     (id_notificacao, id_usuario, ))
         con.commit()
-        return 200
+        return jsonify({"message": "Notificação lida com sucesso"}), 200
     except Exception:
         raise
     finally:
@@ -382,7 +382,7 @@ def trazer_notificacoes():
         return verificacao
     id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
     cur = con.cursor()
-    cur.execute("SELECT NOTIFICACOES WHERE ID_USUARIO = ? AND STATUS = 'NÃO LIDA'",
+    cur.execute("SELECT * FROM NOTIFICACOES WHERE ID_USUARIO = ? AND STATUS = 'NÃO LIDA'",
                 (id_usuario, ))
     notificacoes = cur.fetchall()
     con.commit()
@@ -563,6 +563,9 @@ def cadastrar():
         """
 
         enviar_email_async(email, assunto, corpo)
+
+        # Criar notificação de boas-vindas
+        criar_notificacao(id_usuario, "Boas-vindas ao Read Raccoon!")
 
         return jsonify(
             {
@@ -1552,38 +1555,65 @@ def devolver_emprestimo(id):
         WHERE ID_EMPRESTIMO = ?
     """, (id,))
 
-    # Descobrir o id_livro do empréstimo devolvido
+    # Descobrir os id_livro do empréstimo devolvido
     cur.execute("""
         SELECT i.id_livro
         FROM itens_emprestimo i
         WHERE i.id_emprestimo = ?
     """, (id,))
-    livro_info = cur.fetchone()
+    livros = cur.fetchall()
 
-    if livro_info:
-        id_livro = livro_info[0]
+    if livros:
+        for livro in livros:
+            id_livro = livro[0]
 
-        # Verificar se há reservas pendentes para este livro
-        cur.execute("""
-            SELECT I.id_reserva
-            FROM reservas R
-            JOIN ITENS_RESERVA I ON I.ID_RESERVA = R.ID_RESERVA
-            WHERE id_livro = ? AND status = 'PENDENTE'
-            ORDER BY data_CRIACAO ASC
-        """, (id_livro,))
-        reserva_pendente = cur.fetchone()
-
-        data_validade = devolucao()
-        data_validade_format = data_validade.strftime('%Y-%m-%d %H:%M:%S')
-
-        # Se houver, atualiza a mais antiga para "EM ESPERA"
-        if reserva_pendente:
-            id_reserva = reserva_pendente[0]
+            # Verificar se há reservas pendentes para este livro
             cur.execute("""
-                UPDATE reservas
-                SET status = 'EM ESPERA', data_validade = ?
-                WHERE id_reserva = ?
-            """, (data_validade, id_reserva))
+                SELECT I.id_reserva
+                FROM reservas R
+                JOIN ITENS_RESERVA I ON I.ID_RESERVA = R.ID_RESERVA
+                WHERE I.id_livro = ? AND R.status = 'PENDENTE'
+                ORDER BY data_CRIACAO ASC
+            """, (id_livro,))
+            reserva_pendente = cur.fetchone()
+
+            data_validade = devolucao()
+            data_validade_format = data_validade.strftime('%Y-%m-%d %H:%M:%S')
+
+            # Se houver, atualiza a mais antiga para "EM ESPERA"
+            if reserva_pendente:
+                id_reserva = reserva_pendente[0]
+                cur.execute("""
+                    UPDATE reservas
+                    SET status = 'EM ESPERA', data_validade = ?
+                    WHERE id_reserva = ?
+                """, (data_validade, id_reserva))
+
+                # Enviando e-mail e notificação para a pessoa que teve a sua reserva editada
+                cur.execute("""
+                    SELECT ID_USUARIO, NOME, EMAIL FROM USUARIOS 
+                    WHERE ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA = ?)
+                """, (id_reserva, ))
+                usuario = cur.fetchone()
+
+                cur.execute("""
+                    SELECT TITULO, AUTOR FROM ACERVO a
+                    INNER JOIN ITENS_RESERVA ir ON a.ID_LIVRO = ir.ID_LIVRO
+                    WHERE ir.ID_LIVRO IN (SELECT ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA = ?)
+                    """, (id_reserva, ))
+                livros_reservados = cur.fetchall()
+
+                criar_notificacao(usuario[0], 'Uma reserva sua foi alterada para "em espera", venha para a biblioteca para ser atendido.')
+
+                corpo = f"""
+                        <p>Uma reserva sua agora está em espera!</p>
+                        <p><strong>Livros que você está tentando reservar:</strong></p>
+                        <ul style="padding-left: 20px; font-size: 16px;">
+                        """
+                for titulo, autor in livros_reservados:
+                    corpo += f"<li>{titulo}, por {autor}</li>"
+                corpo += "</ul><p>Agora, vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar).</p>"
+                enviar_email_async(usuario[2], "Aviso de reserva", corpo)
 
     con.commit()
     cur.close()
@@ -1765,7 +1795,7 @@ def deletar_reservas():
         return jsonify({"message": "A reserva selecionada não existe."})
 
     # Mudar o status da Reserva
-    cur.execute("UPDATE reservas SET STATUS = 'Cancelada' WHERE id_reserva = ?", (id_reserva,))
+    cur.execute("UPDATE reservas SET STATUS = 'CANCELADA' WHERE id_reserva = ?", (id_reserva,))
     con.commit()
     cur.close()
 
@@ -1946,6 +1976,7 @@ def relatorio_multas_pendentes_json():
         "total": len(multas_pendentes),
         "multas_pendentes": multas_pendentes
     })
+
 
 @app.route('/relatorio/multas', methods=['GET'])
 def relatorio_multas_json():
@@ -2461,10 +2492,9 @@ def puxar_historico():
 
     # Multas Pendentes
     cur.execute("""
-            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO, M.PAGO
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
             FROM MULTAS M
-            WHERE M.ID_USUARIO = ? AND M.PAGO = 0
-            ORDER BY TOTAL DESC
+            WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
         """, (id_logado,))
     multas_pendentes = cur.fetchall()
 
@@ -2485,8 +2515,8 @@ def puxar_historico():
             for r in reservas_ativas
         ],
         "multas_pendentes": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4],
-             "pago": m[5]}
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+             "pago": m[4]}
             for m in multas_pendentes
         ]
     }
@@ -2801,7 +2831,10 @@ def confirmar_reserva():
 
     assunto = nome + ", uma nota de reserva"
     corpo = """
-        <p>Você fez uma <strong>reserva</strong>!</p>
+        <p>
+            Você fez uma <strong>reserva</strong>!, por enquanto ela está pendente, 
+            quando ela for atendida nós te avisaremos para vir buscar os livros.
+        </p>
         <p><strong>Livros reservados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
@@ -2815,6 +2848,9 @@ def confirmar_reserva():
     cur.close()
 
     enviar_email_async(email, assunto, corpo)
+    criar_notificacao(id_usuario,
+                      """Uma reserva sua foi feita e por enquanto está marcada pendente, 
+                      te avisaremos quando ela for atendida para você ir buscar na biblioteca.""")
 
     return jsonify({"message": "Reserva confirmada.", "id_reserva": reserva_id})
 
@@ -3024,12 +3060,19 @@ def confirmar_emprestimo():
         """
     for titulo, autor in livros_emprestados:
         corpo += f"<li>{titulo}, por {autor}</li>"
-    corpo += "</ul><p>Agora, aguarde a confirmação do administrador para a retirada.</p>"
+    corpo += """</ul>
+        <p>
+            Por enquanto esse empréstimo está marcado como pendente, 
+            vá até a biblioteca para ser atendido e retirar os livros.
+        </p>"""
 
     enviar_email_async(email, assunto, corpo)
     cur.close()
+    criar_notificacao(id_usuario,
+                      """Você fez uma solicitação de empréstimo que por enquanto está pendente, 
+    vá até a biblioteca para ser atendido""")
 
-    return jsonify({"message": "Empréstimo registrado com sucesso. Aguarde confirmação para retirada."})
+    return jsonify({"message": "Empréstimo registrado com sucesso. Venha para a biblioteca para ser atendido."})
 
 
 @app.route('/editar_senha', methods=["PUT"])
@@ -3475,6 +3518,8 @@ def atender_reserva(id_reserva):
 
     con.commit()
     cur.close()
+
+    criar_notificacao(id_usuario, 'Uma reserva sua foi atendida.')
 
     return jsonify({
         "message": "Reserva atendida e empréstimo registrado com sucesso.",
