@@ -174,11 +174,11 @@ def buscar_livro_por_id(id):
     }
 
 
-def criar_notificacao(id_usuario, mensagem):
+def criar_notificacao(id_usuario, mensagem, titulo):
     cur = con.cursor()
     try:
-        cur.execute("INSERT INTO NOTIFICACOES (ID_USUARIO, MESSAGE) VALUES (?, ?)",
-                    (id_usuario, mensagem, ))  # "NÃO LIDA" é o valor padrão de STATUS
+        cur.execute("INSERT INTO NOTIFICACOES (ID_USUARIO, MENSAGEM, TITULO) VALUES (?, ?, ?)",
+                    (id_usuario, mensagem, titulo, ))  # "FALSE" é o valor padrão de LIDA
     except Exception:
         raise
     finally:
@@ -365,7 +365,7 @@ def ler_notificacao(id_notificacao):
     try:
 
         id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
-        cur.execute("UPDATE NOTIFICACOES SET STATUS = 'LIDA' WHERE ID_NOTIFICACAO = ? AND ID_USUARIO = ?",
+        cur.execute("UPDATE NOTIFICACOES SET LIDA = TRUE WHERE ID_NOTIFICACAO = ? AND ID_USUARIO = ?",
                     (id_notificacao, id_usuario, ))
         con.commit()
         return jsonify({"message": "Notificação lida com sucesso"}), 200
@@ -382,7 +382,7 @@ def trazer_notificacoes():
         return verificacao
     id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
     cur = con.cursor()
-    cur.execute("SELECT * FROM NOTIFICACOES WHERE ID_USUARIO = ? AND STATUS = 'NÃO LIDA'",
+    cur.execute("SELECT * FROM NOTIFICACOES WHERE ID_USUARIO = ? AND LIDA = FALSE",
                 (id_usuario, ))
     notificacoes = cur.fetchall()
     con.commit()
@@ -565,7 +565,7 @@ def cadastrar():
         enviar_email_async(email, assunto, corpo)
 
         # Criar notificação de boas-vindas
-        criar_notificacao(id_usuario, "Boas-vindas ao Read Raccoon!")
+        criar_notificacao(id_usuario, "Boas-vindas ao Read Raccoon!", "Seja Bem-vindo(a)!")
 
         return jsonify(
             {
@@ -1253,6 +1253,7 @@ def editar_livro(id_livro):
     tags = data.get('selectedTags', []).split(',')
     idiomas = data.get('idiomas')
     ano_publicado = data.get("ano_publicado")
+    qtd_disponivel = int(qtd_disponivel)
 
     print(data)
     print(tags)
@@ -1603,7 +1604,8 @@ def devolver_emprestimo(id):
                     """, (id_reserva, ))
                 livros_reservados = cur.fetchall()
 
-                criar_notificacao(usuario[0], 'Uma reserva sua foi alterada para "em espera", venha para a biblioteca para ser atendido.')
+                mensagem_notificacao = 'Uma reserva sua foi alterada para "em espera", venha para a biblioteca para ser atendido.'
+                criar_notificacao(usuario[0], mensagem_notificacao, "Aviso de Reserva")
 
                 corpo = f"""
                         <p>Uma reserva sua agora está em espera!</p>
@@ -2847,7 +2849,7 @@ def confirmar_reserva():
     enviar_email_async(email, assunto, corpo)
     criar_notificacao(id_usuario,
                       """Uma reserva sua foi feita e por enquanto está marcada pendente, 
-                      te avisaremos quando ela for atendida para você ir buscar na biblioteca.""")
+                      te avisaremos quando ela for atendida para você ir buscar na biblioteca.""", "Aviso de Reserva")
 
     return jsonify({"message": "Reserva confirmada.", "id_reserva": reserva_id})
 
@@ -3067,7 +3069,7 @@ def confirmar_emprestimo():
     cur.close()
     criar_notificacao(id_usuario,
                       """Você fez uma solicitação de empréstimo que por enquanto está pendente, 
-    vá até a biblioteca para ser atendido""")
+    vá até a biblioteca para ser atendido""", "Aviso de Empréstimo")
 
     return jsonify({"message": "Empréstimo registrado com sucesso. Venha para a biblioteca para ser atendido."})
 
@@ -3516,7 +3518,7 @@ def atender_reserva(id_reserva):
     con.commit()
     cur.close()
 
-    criar_notificacao(id_usuario, 'Uma reserva sua foi atendida.')
+    criar_notificacao(id_usuario, 'Uma reserva sua foi atendida.', "Aviso de Reserva")
 
     return jsonify({
         "message": "Reserva atendida e empréstimo registrado com sucesso.",
