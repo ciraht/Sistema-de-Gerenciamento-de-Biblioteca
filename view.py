@@ -1777,57 +1777,84 @@ def deletar_reservas():
 @app.route('/pesquisa', methods=["POST"])
 def pesquisar():
     data = request.get_json()
-    pesquisa = data.get("pesquisa")
-    filtros = data.get("filtros", [])
+    pesquisa = data.get("pesquisa", "").strip()
+    filtros = data.get("filtros", {})
 
-    print(filtros)
-
-    if not pesquisa:
-        return jsonify({"message": "Nada pesquisado."})
+    if not pesquisa and not filtros:
+        return jsonify({"message": "Nada pesquisado."}), 400
 
     cur = con.cursor()
 
-    # Pesquisando texto
     sql = """
-        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn, 
-                        a.qtd_disponivel, a.descricao 
-        FROM acervo a 
-        LEFT JOIN LIVRO_TAGS lt ON a.ID_LIVRO = lt.ID_LIVRO
-        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
-        WHERE a.titulo CONTAINING ?
-        AND a.DISPONIVEL = TRUE
+        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn,
+                        a.qtd_disponivel, a.descricao
+        FROM acervo a
+        LEFT JOIN livro_tags lt ON a.id_livro = lt.id_livro
+        LEFT JOIN tags t ON lt.id_tag = t.id_tag
+        WHERE a.disponivel = TRUE
     """
 
-    params = [pesquisa]
+    conditions = []
+    params = []
 
-    if "autor" in filtros:
-        sql += " OR a.autor CONTAINING ?"
-        params.append(pesquisa)
-    if "tags" in filtros:
-        sql += " OR t.nome_tag CONTAINING ?"
-        params.append(pesquisa)
-    if "categoria" in filtros:
-        sql += " OR a.categoria CONTAINING ?"
-        params.append(pesquisa)
-    if "isbn" in filtros:
-        sql += " OR a.isbn = ?"
-        params.append(pesquisa)
+    if pesquisa:
+        conditions.append("(a.titulo CONTAINING ? OR a.autor CONTAINING ? OR a.categoria CONTAINING ?)")
+        params.extend([pesquisa] * 3)
 
-    sql += "\norder by a.titulo"
+    if filtros.get("autor"):
+        conditions.append("a.autor CONTAINING ?")
+        params.append(filtros["autor"])
+
+    ano = filtros.get("ano_publicacao")
+    if ano and ano.isdigit() and len(ano) == 4:
+        conditions.append("a.ano_publicado = ?")
+        params.append(int(ano))
+
+    isbn = filtros.get("isbn")
+    if isbn:
+        conditions.append("a.isbn CONTAINING ?")
+        params.append(isbn)
+
+    if filtros.get("categoria"):
+        conditions.append("a.categoria CONTAINING ?")
+        params.append(filtros["categoria"])
+
+    if filtros.get("idioma"):
+        conditions.append("a.idiomas CONTAINING ?")
+        params.append(filtros["idioma"])
+
+    if filtros.get("tags"):
+        tag_list = filtros["tags"]
+        if isinstance(tag_list, list) and tag_list:
+            for tag in tag_list:
+                conditions.append(
+                    "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag CONTAINING ?)")
+                params.append(tag)
+    if conditions:
+        sql += " AND " + " AND ".join(conditions)
+
+    sql += " ORDER BY a.titulo"
+
     cur.execute(sql, params)
     resultados = cur.fetchall()
+    cur.close()
+
     if not resultados:
-        cur.close()
         return jsonify({"message": "Nenhum resultado encontrado."}), 404
 
-    cur.close()
     return jsonify({
         "message": "Pesquisa realizada com sucesso.",
-        "resultados": [{"id": r[0], "titulo": r[1], "autor": r[2], "categoria": r[3],
-                        "isbn": r[4], "qtd_disponivel": r[5], "descricao": r[6], "imagem": f"{r[0]}.jpeg"} for r in
-                       resultados]
-    }), 202
-
+        "resultados": [{
+            "id": r[0],
+            "titulo": r[1],
+            "autor": r[2],
+            "categoria": r[3],
+            "isbn": r[4],
+            "qtd_disponivel": r[5],
+            "descricao": r[6],
+            "imagem": f"{r[0]}.jpeg"
+        } for r in resultados]
+    }), 200
 
 @app.route('/tags', methods=["GET"])
 def get_tags():
