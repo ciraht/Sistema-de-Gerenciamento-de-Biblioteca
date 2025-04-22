@@ -1148,6 +1148,35 @@ def dez_da_semana():
         cur.close()
 
 
+# @app.route('/livros/recomendados', methods=["GET"])
+# def recomendar():
+#     verificacao = informar_verificacao()
+#     if verificacao:
+#         return
+#     cur = con.cursor()
+#     try:
+#         # Olhar as tags dos livros que o usuário avaliou acima de 3.5
+#         cur.execute("""
+#         SELECT t.ID_TAG, COUNT(*) AS total_aparicoes
+#         FROM ACERVO ac
+#         INNER JOIN AVALIACOES a ON a.ID_LIVRO = ac.ID_LIVRO
+#         LEFT JOIN LIVRO_TAGS lt ON lt.ID_LIVRO = a.ID_LIVRO
+#         LEFT JOIN TAGS t ON t.ID_TAG = lt.ID_TAG
+#         WHERE a.ID_USUARIO = ?
+#           AND a.VALOR_TOTAL >= 3.5
+#         GROUP BY t.ID_TAG
+#         ORDER BY total_aparicoes DESC
+#         """)
+#         tags = cur.fetchall()
+#         if not tags:
+#             cur.execute("")
+#     except Exception:
+#         print('Erro ao recomendar')
+#         raise
+#     finally:
+#         cur.close()
+
+
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
     verificacao = informar_verificacao(2)
