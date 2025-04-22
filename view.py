@@ -377,16 +377,29 @@ def ler_notificacao(id_notificacao):
 
 @app.route('/notificacoes', methods=["GET"])
 def trazer_notificacoes():
-    verificacao = informar_verificacao()
-    if verificacao:
-        return verificacao
-    id_usuario = informar_verificacao(trazer_pl=True)['id_usuario']
-    cur = con.cursor()
-    cur.execute("SELECT * FROM NOTIFICACOES WHERE ID_USUARIO = ? AND LIDA = FALSE",
-                (id_usuario, ))
-    notificacoes = cur.fetchall()
-    con.commit()
-    cur.close()
+    verificacao = informar_verificacao(trazer_pl=True)
+    if not verificacao or 'id_usuario' not in verificacao:
+        return jsonify({"erro": "Usuário não autorizado"}), 401
+
+    id_usuario = verificacao['id_usuario']
+
+    try:
+        cur = con.cursor()
+        cur.execute("""
+            SELECT ID_NOTIFICACAO, TITULO, MENSAGEM, LIDA, DATA_ADICIONADA
+            FROM NOTIFICACOES
+            WHERE ID_USUARIO = ?
+        """, (id_usuario,))
+        linhas = cur.fetchall()
+    except Exception as e:
+        return jsonify({"erro": "Erro ao buscar notificações", "detalhes": str(e)}), 500
+        raise
+    finally:
+        cur.close()
+
+    colunas = ['ID_NOTIFICACAO', 'TITULO', 'MENSAGEM', 'LIDA', 'DATA_ADICIONADA']
+    notificacoes = [dict(zip(colunas, linha)) for linha in linhas]
+
     return jsonify({"notificacoes": notificacoes})
 
 
