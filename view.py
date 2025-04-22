@@ -1104,6 +1104,37 @@ def get_livros_adm():
     return jsonify(livros), 200
 
 
+@app.route('/livros/10dasemana', methods=["GET"])
+def dez_da_semana():
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT a.titulo, 
+                   COUNT(ie.id_livro) AS total_emprestimos_livro, 
+                   COUNT(ir.id_livro) AS total_reservas_livro 
+            FROM ACERVO a
+            LEFT JOIN ITENS_EMPRESTIMO ie ON ie.id_livro = a.id_livro
+            LEFT JOIN ITENS_RESERVA ir ON ir.ID_LIVRO = a.ID_LIVRO
+            LEFT JOIN EMPRESTIMOS e ON e.ID_EMPRESTIMO = ie.ID_EMPRESTIMO
+            LEFT JOIN RESERVAS r ON r.ID_RESERVA = ir.ID_RESERVA
+            WHERE CAST(e.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
+              OR CAST(r.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
+            GROUP BY a.titulo
+            ORDER BY (COUNT(ie.id_livro) + COUNT(ir.id_livro)) DESC
+            ROWS 1 TO 10
+            """)
+        livrostop = cur.fetchall()
+        if livrostop:
+            return jsonify({"livrostop": livrostop}), 200
+        else:
+            return jsonify({"message": "Nenhum livro aqui por enquanto :("}), 200
+    except Exception:
+        print("Erro ao trazer os 10 da semana")
+        raise
+    finally:
+        cur.close()
+
+
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
     verificacao = informar_verificacao(2)
