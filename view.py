@@ -1773,14 +1773,11 @@ def enviar_imagem_livro():
     ), 200
 
 
-@app.route('/cancelar_reserva', methods=["PUT"])
-def deletar_reservas():
+@app.route('/reserva/<int:id_reserva>/cancelar', methods=["PUT"])
+def deletar_reservas(id_reserva):
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
-
-    data = request.get_json()
-    id_reserva = data.get("id_reserva")
 
     # Checando se todos os dados foram preenchidos
     if not id_reserva:
