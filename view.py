@@ -1127,7 +1127,7 @@ def adicionar_livros():
 
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios."}), 401
-
+    qtd_disponivel = int(qtd_disponivel)
     cur = con.cursor()
 
     # Verificando se a ISBN já está cadastrada
