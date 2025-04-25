@@ -36,8 +36,8 @@ def devolucao():
 
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
-    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=16, minute=20)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=16, minute=20)
+    scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=8, minute=20)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=20)
     scheduler.start()
 
 
@@ -2570,6 +2570,14 @@ def puxar_historico():
         """, (id_logado,))
     multas_pendentes = cur.fetchall()
 
+    # Multas Concluidas
+    cur.execute("""
+                SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+                FROM MULTAS M
+                WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
+            """, (id_logado,))
+    multas_concluidas = cur.fetchall()
+
     historico = {
         "emprestimos_ativos": [
             {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
@@ -2590,6 +2598,11 @@ def puxar_historico():
             {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
              "pago": m[4]}
             for m in multas_pendentes
+        ],
+        "multas_concluidas": [
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+             "pago": m[4]}
+            for m in multas_concluidas
         ]
     }
 
@@ -3308,12 +3321,19 @@ def puxar_historico_by_id(id):
 
     # Multas Pendentes
     cur.execute("""
-            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, (M.VALOR_BASE + M.VALOR_ACRESCIMO) AS TOTAL, M.ID_EMPRESTIMO, M.PAGO
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
             FROM MULTAS M
-            WHERE M.ID_USUARIO = ? AND M.PAGO = 0
-            ORDER BY TOTAL DESC
+            WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
         """, (id,))
     multas_pendentes = cur.fetchall()
+
+    # Multas Concluidas
+    cur.execute("""
+                SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+                FROM MULTAS M
+                WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
+            """, (id,))
+    multas_concluidas = cur.fetchall()
 
     historico = {
         "emprestimos_ativos": [
@@ -3332,9 +3352,14 @@ def puxar_historico_by_id(id):
             for r in reservas_ativas
         ],
         "multas_pendentes": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "total": m[3], "id_emprestimo": m[4],
-             "pago": m[5]}
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+             "pago": m[4]}
             for m in multas_pendentes
+        ],
+        "multas_concluidas": [
+            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+             "pago": m[4]}
+            for m in multas_concluidas
         ]
     }
 
