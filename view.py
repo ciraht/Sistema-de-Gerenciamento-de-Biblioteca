@@ -245,7 +245,6 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
 
-"""
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails():
@@ -253,37 +252,42 @@ def enviar_emails():
     EMAIL_PARA_RECEBER_RESULTADOS = 'othaviohma2014@gmail.com'
     cur.execute(f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
     try:
+        avisar_para_evitar_multas()
+        multar_quem_precisa()
+        """
         usuario = cur.fetchone()
         cur.close()
+
+        # COISAS DE QR CODE DE PIX
+        nome = usuario[1]
+        email = usuario[2]
+        valor = 251  # Isso é R$ 2,51
+        pix = PixQrCode("Teste", "tharictalon@gmail.com", "Birigui", "100")
+        print(f"Esse pix é válido: {pix.is_valid()}")
+    
+        # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
+        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
+            if not os.path.exists(app.config['UPLOAD_FOLDER']):
+                os.makedirs(app.config['UPLOAD_FOLDER'])
+            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+            os.makedirs(pasta_destino, exist_ok=True)
+    
+        # Verificando se já tem uma imagem para esse valor
+        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
+            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+            print("Novo quick response code de pix criado")
+    
+        print(f"Nome: {nome}, email: {email}")
+        assunto = 'Olá, ' + nome
+        corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix nos anexos'
+        enviar_email_async(email, assunto, corpo, f"{valor}.png")
+        """
+
+        return jsonify({"message": "E-mail teste enviado com sucesso!"})
     except Exception as e:
         return jsonify({"error": e})
-
-    # COISAS DE QR CODE DE PIX
-    nome = usuario[1]
-    email = usuario[2]
-    valor = 251  # Isso é R$ 2,51
-    pix = PixQrCode("Teste", "tharictalon@gmail.com", "Birigui", "100")
-    print(f"Esse pix é válido: {pix.is_valid()}")
-
-    # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
-    if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
-        if not os.path.exists(app.config['UPLOAD_FOLDER']):
-            os.makedirs(app.config['UPLOAD_FOLDER'])
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
-        os.makedirs(pasta_destino, exist_ok=True)
-
-    # Verificando se já tem uma imagem para esse valor
-    if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
-        pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
-        print("Novo quick response code de pix criado")
-
-    print(f"Nome: {nome}, email: {email}")
-    assunto = 'Olá, ' + nome
-    corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix nos anexos'
-    enviar_email_async(email, assunto, corpo, f"{valor}.png")
-
-    return jsonify({"message": "E-mail teste enviado com sucesso!"})
-"""
+    finally:
+        cur.close()
 
 
 @app.route('/configuracoes', methods=["GET"])
@@ -1122,9 +1126,16 @@ def dez_da_semana():
     cur = con.cursor()
     try:
         cur.execute("""
-            SELECT a.titulo, 
-                   COUNT(ie.id_livro) AS total_emprestimos_livro, 
-                   COUNT(ir.id_livro) AS total_reservas_livro 
+            SELECT 
+                a.ID_LIVRO,
+                a.TITULO,
+                a.AUTOR,
+                a.CATEGORIA,
+                a.ISBN,
+                a.QTD_DISPONIVEL,
+                a.DESCRICAO,
+                a.IDIOMAS,
+                a.ANO_PUBLICADO
             FROM ACERVO a
             LEFT JOIN ITENS_EMPRESTIMO ie ON ie.id_livro = a.id_livro
             LEFT JOIN ITENS_RESERVA ir ON ir.ID_LIVRO = a.ID_LIVRO
@@ -1132,13 +1143,53 @@ def dez_da_semana():
             LEFT JOIN RESERVAS r ON r.ID_RESERVA = ir.ID_RESERVA
             WHERE CAST(e.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
               OR CAST(r.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
-            GROUP BY a.titulo
+            GROUP BY 
+    a.ID_LIVRO,
+    a.TITULO,
+    a.AUTOR,
+    a.CATEGORIA,
+    a.ISBN,
+    a.QTD_DISPONIVEL,
+    a.DESCRICAO,
+    a.IDIOMAS,
+    a.ANO_PUBLICADO
             ORDER BY (COUNT(ie.id_livro) + COUNT(ir.id_livro)) DESC
             ROWS 1 TO 10
             """)
         livrostop = cur.fetchall()
+        print(livrostop)
         if livrostop:
-            return jsonify({"livrostop": livrostop}), 200
+            livros = []
+            for r in livrostop:
+                cur.execute("""
+                        SELECT t.id_tag, t.nome_tag
+                        FROM LIVRO_TAGS lt
+                        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                        WHERE lt.ID_LIVRO = ?
+                    """, (r[0],))
+                tags = cur.fetchall()
+
+                selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+                livro = {
+                    'id': r[0],
+                    'titulo': r[1],
+                    'autor': r[2],
+                    'categoria': r[3],
+                    'isbn': r[4],
+                    'qtd_disponivel': r[5],
+                    'descricao': r[6],
+                    'idiomas': r[7],
+                    'ano_publicacao': r[8],
+                    'selectedTags': selected_tags,
+                    'imagem': f"{r[0]}.jpeg"
+                }
+
+                livros.append(livro)
+
+            cur.close()
+            return jsonify(livros), 200
+
         else:
             return jsonify({"message": "Nenhum livro aqui por enquanto :("}), 200
     except Exception:
@@ -2311,7 +2362,7 @@ def gerar_relatorio_multas():
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de multas", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Multas", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
     pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
@@ -2319,7 +2370,7 @@ def gerar_relatorio_multas():
     pdf.ln(5)  # Espaço após a linha
     pdf.set_font("Arial", size=12)
 
-    subtitulos = ["Email", "Telefone", "Nome", "Data Que Era Para Devolver"]
+    subtitulos = ["Email", "Telefone", "Nome", "Data que Era Para Devolver"]
 
     for multado in tangoes:
         for i in range(len(subtitulos)):
@@ -2340,6 +2391,7 @@ def gerar_relatorio_multas():
     except Exception as e:
         print(e)
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
 
 @app.route('/relatorio/gerar/multas/pendentes', methods=['GET'])
 def gerar_relatorio_multas_pendentes():
@@ -2362,7 +2414,7 @@ def gerar_relatorio_multas_pendentes():
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de multas", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Multas Pendentes", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
     pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
@@ -2370,7 +2422,7 @@ def gerar_relatorio_multas_pendentes():
     pdf.ln(5)  # Espaço após a linha
     pdf.set_font("Arial", size=12)
 
-    subtitulos = ["Email", "Telefone", "Nome", "Data Que Era Para Devolver"]
+    subtitulos = ["Email", "Telefone", "Nome", "Data que Era Para Devolver"]
 
     for multado in tangoes:
         for i in range(len(subtitulos)):
