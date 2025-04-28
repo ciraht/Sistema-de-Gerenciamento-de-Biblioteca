@@ -1141,7 +1141,8 @@ def dez_da_semana():
             LEFT JOIN ITENS_RESERVA ir ON ir.ID_LIVRO = a.ID_LIVRO
             LEFT JOIN EMPRESTIMOS e ON e.ID_EMPRESTIMO = ie.ID_EMPRESTIMO
             LEFT JOIN RESERVAS r ON r.ID_RESERVA = ir.ID_RESERVA
-            WHERE CAST(e.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
+            WHERE a.DISPONIVEL = TRUE
+            AND	CAST(e.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
               OR CAST(r.DATA_CRIACAO AS DATE) >= CURRENT_DATE - 7
             GROUP BY 
     a.ID_LIVRO,
@@ -1528,39 +1529,40 @@ def alterar_disponibilidade_livro():
     autor = dados[1]
 
     # Enviar um e-mail para o usuário que possuia reserva
-    for usuario in id_usuario[0]:
-        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
-        dados = cur.fetchone()
-        nome = dados[0]
-        email = dados[1]
+    if id_usuario:
+        for usuario in id_usuario[0]:
+            cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
+            dados = cur.fetchone()
+            nome = dados[0]
+            email = dados[1]
 
-        assunto = f"{nome}, sua reserva foi cancelada"
-        corpo = f"""
-        <p style="font-size: 18px; line-height: 1.6; color: #333;">
-            Caro leitor,
-        </p>
+            assunto = f"{nome}, sua reserva foi cancelada"
+            corpo = f"""
+            <p style="font-size: 18px; line-height: 1.6; color: #333;">
+                Caro leitor,
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Informamos que o livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que estava reservado em seu nome, <strong>foi indisponibilizado</strong> por nossa equipe da biblioteca.
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Sentimos muito pelo transtorno causado. Nossa equipe está constantemente trabalhando para melhorar a experiência dos leitores, e em breve novos exemplares estarão disponíveis.
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Você pode explorar outros títulos disponíveis acessando sua conta no sistema.
+            </p>
+    
+            <div style="text-align: center; margin-top: 32px;">
+                <a href="http://localhost:5173/" target="_blank" 
+                   style="background-color: #1a73e8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    Ver outros livros
+                </a>
+            </div>
+            """
 
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Informamos que o livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que estava reservado em seu nome, <strong>foi indisponibilizado</strong> por nossa equipe da biblioteca.
-        </p>
-
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Sentimos muito pelo transtorno causado. Nossa equipe está constantemente trabalhando para melhorar a experiência dos leitores, e em breve novos exemplares estarão disponíveis.
-        </p>
-
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Você pode explorar outros títulos disponíveis acessando sua conta no sistema.
-        </p>
-
-        <div style="text-align: center; margin-top: 32px;">
-            <a href="http://localhost:5173/" target="_blank" 
-               style="background-color: #1a73e8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                Ver outros livros
-            </a>
-        </div>
-        """
-
-        enviar_email_async(email, assunto, corpo)
+            enviar_email_async(email, assunto, corpo)
 
     # Cancelamento de empréstimos
     cur.execute(
@@ -1579,38 +1581,39 @@ def alterar_disponibilidade_livro():
         cur.execute(query, emprestimos_deletar)
 
     # Enviar um e-mail para o usuário que teve o seu empréstimo comprometido
-    for usuario in id_usuario[0]:
-        cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
-        dados = cur.fetchone()
-        nome = dados[0]
-        email = dados[1]
+    if id_usuario:
+        for usuario in id_usuario[0]:
+            cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (usuario,))
+            dados = cur.fetchone()
+            nome = dados[0]
+            email = dados[1]
 
-        assunto = f"{nome}, seu empréstimo foi cancelado"
-        corpo = f"""
-        <p style="font-size: 18px; line-height: 1.6; color: #333;">
-            Caro leitor,
-        </p>
-
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Informamos que o exemplar do livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que se encontra atualmente emprestado em seu nome, <strong>foi marcado como indisponível</strong> por nossa equipe da biblioteca.
-        </p>
-
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Solicitamos, por gentileza, que o exemplar seja <strong>devolvido o quanto antes</strong>, para que possamos regularizar a situação e garantir a disponibilidade para outros leitores.
-        </p>
-
-        <p style="font-size: 16px; line-height: 1.6; color: #444;">
-            Agradecemos sua compreensão e colaboração.
-        </p>
-
-        <div style="text-align: center; margin-top: 32px;">
-            <a href="http://localhost:5173/" target="_blank"
-               style="background-color: #d93025; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                Devolver exemplar
-            </a>
-        </div>
-        """
-        enviar_email_async(email, assunto, corpo)
+            assunto = f"{nome}, seu empréstimo foi cancelado"
+            corpo = f"""
+            <p style="font-size: 18px; line-height: 1.6; color: #333;">
+                Caro leitor,
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Informamos que o exemplar do livro <strong style="color: #1a73e8;">"{titulo}"</strong>, de <em>{autor}</em>, que se encontra atualmente emprestado em seu nome, <strong>foi marcado como indisponível</strong> por nossa equipe da biblioteca.
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Solicitamos, por gentileza, que o exemplar seja <strong>devolvido o quanto antes</strong>, para que possamos regularizar a situação e garantir a disponibilidade para outros leitores.
+            </p>
+    
+            <p style="font-size: 16px; line-height: 1.6; color: #444;">
+                Agradecemos sua compreensão e colaboração.
+            </p>
+    
+            <div style="text-align: center; margin-top: 32px;">
+                <a href="http://localhost:5173/" target="_blank"
+                   style="background-color: #d93025; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    Devolver exemplar
+                </a>
+            </div>
+            """
+            enviar_email_async(email, assunto, corpo)
 
     # E finalmente, na lista de livros
     cur.execute("UPDATE ACERVO SET DISPONIVEL = FALSE WHERE ID_livro = ?", (id_livro,))
