@@ -2110,6 +2110,9 @@ def get_livros_id(id):
 
 @app.route('/relatorio/multaspendentes', methods=['GET'])
 def relatorio_multas_pendentes_json():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
                     SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
@@ -2138,6 +2141,9 @@ def relatorio_multas_pendentes_json():
 
 @app.route('/relatorio/multas', methods=['GET'])
 def relatorio_multas_json():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
                     SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
@@ -2158,6 +2164,9 @@ def relatorio_multas_json():
 
 @app.route('/relatorio/livrosfaltando', methods=['GET'])
 def relatorio_livros_faltando_json():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -2198,6 +2207,9 @@ def relatorio_livros_faltando_json():
 
 @app.route('/relatorio/livros', methods=['GET'])
 def relatorio_livros_json():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -2229,6 +2241,9 @@ def relatorio_livros_json():
 
 @app.route('/relatorio/usuarios', methods=['GET'])
 def relatorio_usuarios_json():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -2254,6 +2269,9 @@ def relatorio_usuarios_json():
 
 @app.route('/relatorio/gerar/livros', methods=['GET'])
 def gerar_relatorio_livros():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
         SELECT 
@@ -2310,8 +2328,14 @@ def gerar_relatorio_livros():
             pdf.set_font("Arial", 'B', 14)
             pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
 
+            texto = livro[i]
+            texto = str(texto)
+
+            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
+            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+
             pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{livro[i]}")
+            pdf.multi_cell(50, 5, f"{texto}")
             pdf.ln(1)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(7)
@@ -2328,6 +2352,9 @@ def gerar_relatorio_livros():
 
 @app.route('/relatorio/gerar/usuarios', methods=['GET'])
 def gerar_relatorio_usuarios():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
         SELECT
@@ -2362,8 +2389,14 @@ def gerar_relatorio_usuarios():
             pdf.set_font("Arial", 'B', 14)
             pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
 
+            texto = usuario[i]
+            texto = str(texto)
+
+            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
+            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+
             pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{usuario[i]}")
+            pdf.multi_cell(50, 5, f"{texto}")
             pdf.ln(1)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(7)
@@ -2378,6 +2411,9 @@ def gerar_relatorio_usuarios():
 
 @app.route('/relatorio/gerar/multas', methods=['GET'])
 def gerar_relatorio_multas():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
             SELECT u.email, u.telefone, u.nome, e.data_devolver
@@ -2412,8 +2448,14 @@ def gerar_relatorio_multas():
             pdf.set_font("Arial", 'B', 14)
             pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
 
+            texto = multado[i]
+            texto = str(texto)
+
+            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
+            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+
             pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(100, 5, f"{multado[i]}")
+            pdf.multi_cell(100, 5, f"{texto}")
             pdf.ln(1)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(7)
@@ -2430,6 +2472,9 @@ def gerar_relatorio_multas():
 
 @app.route('/relatorio/gerar/multas/pendentes', methods=['GET'])
 def gerar_relatorio_multas_pendentes():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
     cur = con.cursor()
     cur.execute("""
             SELECT u.email, u.telefone, u.nome, e.data_devolver
@@ -2464,8 +2509,14 @@ def gerar_relatorio_multas_pendentes():
             pdf.set_font("Arial", 'B', 14)
             pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
 
+            texto = multado[i]
+            texto = str(texto)
+
+            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
+            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+
             pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(100, 5, f"{multado[i]}")
+            pdf.multi_cell(100, 5, f"{texto}")
             pdf.ln(1)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(7)
