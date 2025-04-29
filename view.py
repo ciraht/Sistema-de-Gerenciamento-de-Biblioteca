@@ -2066,10 +2066,6 @@ def avaliar_livro(id):
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
-    verificacao = informar_verificacao()
-    if verificacao:
-        return verificacao
-
     livro = buscar_livro_por_id(id)
     if not livro:
         return jsonify({"error": "Livro não encontrado."}), 404
