@@ -2120,7 +2120,7 @@ def relatorio_multas_pendentes_json():
                     JOIN usuarios u ON e.id_usuario = u.id_usuario
                     JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
                     WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
-                    AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+                    AND pago = false
                     ORDER BY m.DATA_ADICIONADO
                     """)
 
@@ -2482,7 +2482,7 @@ def gerar_relatorio_multas_pendentes():
             JOIN usuarios u ON e.id_usuario = u.id_usuario
             JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
             WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
-            AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
+            AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m) and m.pago = false
             ORDER BY m.DATA_ADICIONADO DESC
         """)
     tangoes = cur.fetchall()
