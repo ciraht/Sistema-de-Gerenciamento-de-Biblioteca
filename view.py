@@ -37,7 +37,7 @@ def devolucao():
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=8, minute=20)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=20)
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=20)  # Essa função cria os códigos PIX
     scheduler.start()
 
 
@@ -113,65 +113,100 @@ def informar_verificacao(tipo=0, trazer_pl=False):
 
 
 # Funções relacionadas a livros
-def buscar_livro_por_id(id):
+def buscar_livro_por_id(id, descontar_faltandos=False):
     cur = con.cursor()
-    cur.execute("""
-        SELECT 
-            a.id_livro, 
-            a.titulo, 
-            a.autor, 
-            a.CATEGORIA, 
-            a.ISBN, 
-            a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
-            a.idiomas, 
-            a.ANO_PUBLICADO
-        FROM ACERVO a
-        WHERE a.id_livro = ?
-    """, (id,))
+    try:
+        cur.execute("""
+            SELECT 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL, 
+                a.DESCRICAO, 
+                a.idiomas, 
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            WHERE a.id_livro = ?
+        """, (id,))
 
-    livro = cur.fetchone()
+        livro = cur.fetchone()
+        if descontar_faltandos:
+            cur.execute("""
+            SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
+            WHERE IE.ID_LIVRO = ? 
+            AND IE.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))
+            """, (id, ))
+            contagem_emp = cur.fetchone()
+            contagem_emp = 0 if not contagem_emp else contagem_emp[0]
+            cur.execute("""
+            SELECT COUNT(*) FROM ITENS_RESERVA IE
+            WHERE IE.ID_LIVRO = ? 
+            AND IE.ID_RESERVA IN (SELECT E.ID_RESERVA FROM RESERVAS E WHERE E.STATUS IN ('EM ESPERA', 'PENDENTE'))
+            """, (id, ))
+            contagem_res = cur.fetchone()
+            contagem_res = 0 if not contagem_res else contagem_res[0]
+            contagem = contagem_emp + contagem_res
+        if not livro:
+            return None  # Retorna None se o livro não for encontrado
 
-    if not livro:
-        return None  # Retorna None se o livro não for encontrado
+        cur.execute("""
+            SELECT t.id_tag, t.nome_tag
+            FROM LIVRO_TAGS lt
+            LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+            WHERE lt.ID_LIVRO = ?
+        """, (id,))
 
-    cur.execute("""
-        SELECT t.id_tag, t.nome_tag
-        FROM LIVRO_TAGS lt
-        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
-        WHERE lt.ID_LIVRO = ?
-    """, (id,))
+        tags = cur.fetchall()
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
 
-    tags = cur.fetchall()
-    selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+        cur.execute("SELECT SUM(VALOR_TOTAL) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+        valor_total = cur.fetchone()
 
-    cur.execute("SELECT SUM(VALOR_TOTAL) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    valor_total = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
+        qtd = cur.fetchone()
 
-    cur.execute("SELECT COUNT(*) FROM AVALIACOES WHERE ID_LIVRO = ?", (id,))
-    qtd = cur.fetchone()
+        if valor_total and valor_total[0] is not None and qtd and qtd[0] != 0:
+            avaliacoes = round((valor_total[0] / qtd[0]), 2)
+        else:
+            avaliacoes = 0.00
 
-    if valor_total and valor_total[0] is not None and qtd and qtd[0] != 0:
-        avaliacoes = round((valor_total[0] / qtd[0]), 2)
-    else:
-        avaliacoes = 0.00
+        if descontar_faltandos:
+            return {
+                "id": livro[0],
+                "titulo": livro[1],
+                "autor": livro[2],
+                "categoria": livro[3],
+                "isbn": livro[4],
+                "qtd_disponivel": livro[5] - contagem,
+                "descricao": livro[6],
+                "idiomas": livro[7],
+                "ano_publicado": livro[8],
+                "imagem": f"{livro[0]}.jpeg",
+                "selectedTags": selected_tags,
+                "avaliacao": avaliacoes
+            }
+        return {
+            "id": livro[0],
+            "titulo": livro[1],
+            "autor": livro[2],
+            "categoria": livro[3],
+            "isbn": livro[4],
+            "qtd_disponivel": livro[5],
+            "descricao": livro[6],
+            "idiomas": livro[7],
+            "ano_publicado": livro[8],
+            "imagem": f"{livro[0]}.jpeg",
+            "selectedTags": selected_tags,
+            "avaliacao": avaliacoes
+        }
 
-    cur.close()
-
-    return {
-        "id": livro[0],
-        "titulo": livro[1],
-        "autor": livro[2],
-        "categoria": livro[3],
-        "isbn": livro[4],
-        "qtd_disponivel": livro[5],
-        "descricao": livro[6],
-        "idiomas": livro[7],
-        "ano_publicado": livro[8],
-        "imagem": f"{livro[0]}.jpeg",
-        "selectedTags": selected_tags,
-        "avaliacao": avaliacoes
-    }
+    except Exception:
+        print("Erro ao buscar livro por id")
+        raise
+    finally:
+        cur.close()
 
 
 def criar_notificacao(id_usuario, mensagem, titulo):
@@ -2066,7 +2101,8 @@ def avaliar_livro(id):
 
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
-    livro = buscar_livro_por_id(id)
+    livro = buscar_livro_por_id(id, True)
+    print(livro)
     if not livro:
         return jsonify({"error": "Livro não encontrado."}), 404
     return jsonify(livro)
@@ -2579,87 +2615,90 @@ def puxar_historico():
     id_logado = payload["id_usuario"]
 
     cur = con.cursor()
+    try:
 
-    # Emprestimos Ativos
-    cur.execute("""
-            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
-            FROM ITENS_EMPRESTIMO I
-            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
-            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
-            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
-            ORDER BY E.DATA_DEVOLVER ASC
-        """, (id_logado,))
-    emprestimos_ativos = cur.fetchall()
+        # Emprestimos Ativos
+        cur.execute("""
+                SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+                FROM ITENS_EMPRESTIMO I
+                JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+                JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+                WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+                ORDER BY E.DATA_DEVOLVER ASC
+            """, (id_logado,))
+        emprestimos_ativos = cur.fetchall()
 
-    # Emprestimos Concluídos
-    cur.execute("""
-            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
-            FROM ITENS_EMPRESTIMO I
-            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
-            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
-            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NOT NULL
-            ORDER BY E.DATA_DEVOLVIDO DESC
-        """, (id_logado,))
-    emprestimos_concluidos = cur.fetchall()
+        # Emprestimos Concluídos
+        cur.execute("""
+                SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
+                FROM ITENS_EMPRESTIMO I
+                JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+                JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+                WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NOT NULL
+                ORDER BY E.DATA_DEVOLVIDO DESC
+            """, (id_logado,))
+        emprestimos_concluidos = cur.fetchall()
 
-    # Reservas Ativas - Obtendo os livros relacionados às reservas
-    cur.execute("""
-            SELECT IR.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
-            FROM ITENS_RESERVA IR
-            JOIN RESERVAS R ON IR.ID_RESERVA = R.ID_RESERVA
-            JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
-            WHERE R.ID_USUARIO = ?
-            ORDER BY R.DATA_VALIDADE ASC
-        """, (id_logado,))
-    reservas_ativas = cur.fetchall()
+        # Reservas Ativas - Obtendo os livros relacionados às reservas
+        cur.execute("""
+                SELECT IR.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+                FROM ITENS_RESERVA IR
+                JOIN RESERVAS R ON IR.ID_RESERVA = R.ID_RESERVA
+                JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+                WHERE R.ID_USUARIO = ?
+                ORDER BY R.DATA_VALIDADE ASC
+            """, (id_logado,))
+        reservas_ativas = cur.fetchall()
 
-    # Multas Pendentes
-    cur.execute("""
-            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
-            FROM MULTAS M
-            WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
-        """, (id_logado,))
-    multas_pendentes = cur.fetchall()
-
-    # Multas Concluidas
-    cur.execute("""
+        # Multas Pendentes
+        cur.execute("""
                 SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
                 FROM MULTAS M
-                WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
+                WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
             """, (id_logado,))
-    multas_concluidas = cur.fetchall()
+        multas_pendentes = cur.fetchall()
 
-    historico = {
-        "emprestimos_ativos": [
-            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
-             "data_devolver": e[5]}
-            for e in emprestimos_ativos
-        ],
-        "emprestimos_concluidos": [
-            {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
-             "data_devolver": e[5], "data_devolvido": e[6]}
-            for e in emprestimos_concluidos
-        ],
-        "reservas_ativas": [
-            {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_criacao": r[4],
-             "data_validade": r[5], "status": r[6]}
-            for r in reservas_ativas
-        ],
-        "multas_pendentes": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
-             "pago": m[4]}
-            for m in multas_pendentes
-        ],
-        "multas_concluidas": [
-            {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
-             "pago": m[4]}
-            for m in multas_concluidas
-        ]
-    }
+        # Multas Concluidas
+        cur.execute("""
+                    SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+                    FROM MULTAS M
+                    WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
+                """, (id_logado,))
+        multas_concluidas = cur.fetchall()
 
-    cur.close()
-
-    return jsonify(historico)
+        historico = {
+            "emprestimos_ativos": [
+                {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+                 "data_devolver": e[5]}
+                for e in emprestimos_ativos
+            ],
+            "emprestimos_concluidos": [
+                {"id_livro": e[0], "titulo": e[1], "autor": e[2], "id_emprestimo": e[3], "data_retirada": e[4],
+                 "data_devolver": e[5], "data_devolvido": e[6]}
+                for e in emprestimos_concluidos
+            ],
+            "reservas_ativas": [
+                {"id_livro": r[0], "titulo": r[1], "autor": r[2], "id_reserva": r[3], "data_criacao": r[4],
+                 "data_validade": r[5], "status": r[6]}
+                for r in reservas_ativas
+            ],
+            "multas_pendentes": [
+                {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+                 "pago": m[4]}
+                for m in multas_pendentes
+            ],
+            "multas_concluidas": [
+                {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
+                 "pago": m[4]}
+                for m in multas_concluidas
+            ]
+        }
+        return jsonify(historico)
+    except Exception:
+        print("Erro ao pegar histórico")
+        raise
+    finally:
+        cur.close()
 
 
 @app.route('/editar_usuario/<int:id_usuario>', methods=["PUT"])
@@ -3852,6 +3891,7 @@ def get_multas_for_user():
         }
         for m in multas
     ])
+
 
 @app.route('/movimentacoes', methods=['GET'])
 def get_all_movimentacoes():
