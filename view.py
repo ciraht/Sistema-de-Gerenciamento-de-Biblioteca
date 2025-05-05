@@ -12,9 +12,29 @@ from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
 from pixqrcode import PixQrCode
+from flask_socketio import SocketIO, emit, join_room
 
 senha_secreta = app.config['SECRET_KEY']
+socketio = SocketIO(app, cors_allowed_origins="*")
 
+def notificar_usuario_ws(id_usuario):
+    socketio.emit("nova_notificacao", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
+
+@socketio.on("join_usuario")
+def handle_join_usuario(data):
+    token = data.get("token")
+    if not token:
+        emit("erro", {"msg": "Token não fornecido"})
+        return
+
+    usuario = informar_verificacao(token)
+    if not usuario or 'id_usuario' not in usuario:
+        emit("erro", {"msg": "Token inválido"})
+        return
+
+    id_usuario = usuario['id_usuario']
+    join_room(f"user_{id_usuario}")
+    emit("usuario_conectado", {"msg": f"Conectado à sala user_{id_usuario}"})
 
 def configuracoes():
     cur = con.cursor()
@@ -421,7 +441,6 @@ def trazer_notificacoes():
         return jsonify({"erro": "Usuário não autorizado"}), 401
 
     id_usuario = verificacao['id_usuario']
-
     try:
         cur = con.cursor()
         cur.execute("""
@@ -432,7 +451,6 @@ def trazer_notificacoes():
         linhas = cur.fetchall()
     except Exception as e:
         return jsonify({"erro": "Erro ao buscar notificações", "detalhes": str(e)}), 500
-        raise
     finally:
         cur.close()
 
@@ -440,6 +458,20 @@ def trazer_notificacoes():
     notificacoes = [dict(zip(colunas, linha)) for linha in linhas]
 
     return jsonify({"notificacoes": notificacoes})
+
+# Nova rota opcional se quiser avisar que o usuário "visualizou"
+@app.route('/notificacoes/visualizadas', methods=["POST"])
+def marcar_visualizadas():
+    verificacao = informar_verificacao(trazer_pl=True)
+    if not verificacao or 'id_usuario' not in verificacao:
+        return jsonify({"erro": "Usuário não autorizado"}), 401
+
+    id_usuario = verificacao['id_usuario']
+    socketio.emit("notificacoes_visualizadas", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
+    return jsonify({"message": "Notificações marcadas como visualizadas"}), 200
+
+def nova_notificacao_para_usuario(id_usuario, notificacao):
+    socketio.emit("nova_notificacao", notificacao, room=str(id_usuario))
 
 
 @app.route('/cadastro', methods=["POST"])
