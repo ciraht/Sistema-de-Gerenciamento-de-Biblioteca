@@ -2036,89 +2036,6 @@ def deletar_reservas(id_reserva):
     }), 200
 
 
-@app.route('/livros/pesquisa', methods=["POST"])
-def pesquisar():
-    data = request.get_json()
-    pesquisa = data.get("pesquisa", "").strip()
-    filtros = data.get("filtros", {})
-
-    if not pesquisa and not filtros:
-        return jsonify({"message": "Nada pesquisado."}), 400
-
-    cur = con.cursor()
-
-    sql = """
-        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn,
-                        a.qtd_disponivel, a.descricao
-        FROM acervo a
-        LEFT JOIN livro_tags lt ON a.id_livro = lt.id_livro
-        LEFT JOIN tags t ON lt.id_tag = t.id_tag
-        WHERE a.disponivel = TRUE
-    """
-
-    conditions = []
-    params = []
-
-    if pesquisa:
-        conditions.append("(a.titulo CONTAINING ? OR a.autor CONTAINING ? OR a.categoria CONTAINING ?)")
-        params.extend([pesquisa] * 3)
-
-    if filtros.get("autor"):
-        conditions.append("a.autor CONTAINING ?")
-        params.append(filtros["autor"])
-
-    ano = filtros.get("ano_publicacao")
-    if ano and ano.isdigit() and len(ano) == 4:
-        conditions.append("a.ano_publicado = ?")
-        params.append(int(ano))
-
-    isbn = filtros.get("isbn")
-    if isbn:
-        conditions.append("a.isbn CONTAINING ?")
-        params.append(isbn)
-
-    if filtros.get("categoria"):
-        conditions.append("a.categoria CONTAINING ?")
-        params.append(filtros["categoria"])
-
-    if filtros.get("idioma"):
-        conditions.append("a.idiomas CONTAINING ?")
-        params.append(filtros["idioma"])
-
-    if filtros.get("tags"):
-        tag_list = filtros["tags"]
-        if isinstance(tag_list, list) and tag_list:
-            for tag in tag_list:
-                conditions.append(
-                    "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag CONTAINING ?)")
-                params.append(tag)
-    if conditions:
-        sql += " AND " + " AND ".join(conditions)
-
-    sql += " ORDER BY a.titulo"
-
-    cur.execute(sql, params)
-    resultados = cur.fetchall()
-    cur.close()
-
-    if not resultados:
-        return jsonify({"message": "Nenhum resultado encontrado."}), 404
-
-    return jsonify({
-        "message": "Pesquisa realizada com sucesso.",
-        "resultados": [{
-            "id": r[0],
-            "titulo": r[1],
-            "autor": r[2],
-            "categoria": r[3],
-            "isbn": r[4],
-            "qtd_disponivel": r[5],
-            "descricao": r[6],
-            "imagem": f"{r[0]}.jpeg"
-        } for r in resultados]
-    }), 200
-
-
 @app.route('/livros/pesquisa/<int:pagina>', methods=["POST"])
 def pesquisar_livros(pagina):
     data = request.get_json()
@@ -2180,10 +2097,11 @@ def pesquisar_livros(pagina):
     if conditions:
         sql += " AND " + " AND ".join(conditions)
 
-    inicial = pagina*10 - 9
-    # print(f'ROWS {inicial} to {pagina*10}')
+    inicial = pagina*10 - 9 if pagina == 1 else pagina*8 - 7
+    final = pagina*8
+    print(f'ROWS {inicial} to {final}')
 
-    sql += f" ORDER BY a.titulo ROWS {inicial} TO {pagina*10}"
+    sql += f" ORDER BY a.titulo ROWS {inicial} TO {final}"
 
     cur.execute(sql, params)
     resultados = cur.fetchall()
@@ -2207,8 +2125,8 @@ def pesquisar_livros(pagina):
     }), 200
 
 
-@app.route('/livros/pesquisa/gerenciar', methods=["POST"])
-def pesquisar_livros_biblio():
+@app.route('/livros/pesquisa/gerenciar/<int:pagina>', methods=["POST"])
+def pesquisar_livros_biblio(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
@@ -2270,7 +2188,13 @@ def pesquisar_livros_biblio():
     if conditions:
         sql += " AND ".join(conditions)
 
-    sql += " ORDER BY a.titulo"
+    sql += " ORDER BY a.titulo "
+
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    sql += f'ROWS {inicial} to {final}'
 
     cur.execute(sql, params)
     resultados = cur.fetchall()
@@ -2512,6 +2436,7 @@ def relatorio_usuarios_json():
         "total": len(usuarios_json),
         "usuarios": usuarios_json
     })
+
 
 @app.route('/relatorio/gerar/livros/faltando', methods=['GET'])
 def gerar_relatorio_livros_faltando():
@@ -2898,8 +2823,8 @@ def get_self_user():
     })
 
 
-@app.route('/usuarios', methods=["get"])
-def usuarios():
+@app.route('/usuarios/<int:pagina>', methods=["get"])
+def usuarios(pagina):
     verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
@@ -2938,7 +2863,11 @@ def usuarios():
         listaUsuarios.append(users)
 
     cur.close()
-    return jsonify(listaUsuarios), 200
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    return jsonify(listaUsuarios[inicial - 1:final])
 
 
 @app.route('/uploads/<tipo>/<filename>')
@@ -4111,8 +4040,8 @@ def get_all_multas():
     ])
 
 
-@app.route("/usuarios/pesquisa", methods=["POST"])
-def pesquisar_usuarios():
+@app.route("/usuarios/pesquisa/<int:pagina>", methods=["POST"])
+def pesquisar_usuarios(pagina):
     verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
@@ -4147,7 +4076,13 @@ def pesquisar_usuarios():
     if conditions:
         sql += " AND ".join(conditions)
 
-    sql += " ORDER BY u.nome"
+    sql += " ORDER BY u.nome "
+
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    sql += f'ROWS {inicial} to {final}'
 
     cur.execute(sql, params)
     resultados = cur.fetchall()
@@ -4268,8 +4203,8 @@ def get_multas_for_user():
     ])
 
 
-@app.route('/movimentacoes', methods=['GET'])
-def get_all_movimentacoes():
+@app.route('/movimentacoes/<int:pagina>', methods=['GET'])
+def get_all_movimentacoes(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
@@ -4354,11 +4289,16 @@ def get_all_movimentacoes():
         del m['data_evento']
 
     cur.close()
-    return jsonify(movimentacoes)
+
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    return jsonify(movimentacoes[inicial-1:final])
 
 
-@app.route("/movimentacoes/pesquisa", methods=["POST"])
-def pesquisar_movimentacoes():
+@app.route("/movimentacoes/pesquisa/<int:pagina>", methods=["POST"])
+def pesquisar_movimentacoes(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
@@ -4469,7 +4409,12 @@ def pesquisar_movimentacoes():
         del m['data_evento']
 
     cur.close()
-    return jsonify(movimentacoes)
+
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    return jsonify(movimentacoes[inicial-1:final])
 
 
 @app.route("/valor/criar", methods=["POST"])
