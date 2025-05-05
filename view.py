@@ -1349,6 +1349,78 @@ def get_livros_novos():
 #         cur.close()
 
 
+@app.route('/livros/porqueleu', methods=["GET"])
+def recomendar_com_base_em():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return jsonify({"visivel": False})
+
+    id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
+    print(id_usuario)
+
+    cur = con.cursor()
+
+    # Selecionar os livros que o usuário leu e escolher o mais recente
+    cur.execute("""
+        SELECT DISTINCT A.ID_LIVRO, A.TITULO FROM ACERVO A
+        INNER JOIN ITENS_EMPRESTIMO IE ON IE.ID_LIVRO = A.ID_LIVRO
+        WHERE IE.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.ID_USUARIO = ?)
+        ORDER BY IE.ID_ITEM DESC
+        ROWS 1
+        """, (id_usuario, ))
+    livro_analisado = cur.fetchone()
+
+    # Trazer livros que tenham as mesmas tags que o livro escolhido
+    cur.execute("""
+                SELECT 
+                    a.id_livro, 
+                    a.titulo, 
+                    a.autor, 
+                    a.CATEGORIA, 
+                    a.ISBN, 
+                    a.QTD_DISPONIVEL, 
+                    a.DESCRICAO, 
+                    a.idiomas, 
+                    a.ANO_PUBLICADO
+                FROM ACERVO a
+                JOIN LIVRO_TAGS LT ON LT.ID_LIVRO = A.ID_LIVRO 
+                    WHERE LT.ID_TAG IN (SELECT ID_TAG FROM LIVRO_TAGS WHERE ID_LIVRO = ?) AND a.disponivel = true
+                
+                ORDER BY a.id_livro asc;
+            """, (livro_analisado[0], ))
+
+    livros = []
+    for r in cur.fetchall():
+        cur.execute("""
+                SELECT t.id_tag, t.nome_tag
+                FROM LIVRO_TAGS lt
+                LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                WHERE lt.ID_LIVRO = ?
+            """, (r[0],))
+        tags = cur.fetchall()
+
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+        livro = {
+            'id': r[0],
+            'titulo': r[1],
+            'autor': r[2],
+            'categoria': r[3],
+            'isbn': r[4],
+            'qtd_disponivel': r[5],
+            'descricao': r[6],
+            'idiomas': r[7],
+            'ano_publicacao': r[8],
+            'selectedTags': selected_tags,
+            'imagem': f"{r[0]}.jpeg"
+        }
+
+        livros.append(livro)
+
+    cur.close()
+    return jsonify({"livroAnalisado": livro_analisado, "livros": livros, "visivel": True}), 200
+
+
 @app.route('/adicionar_livros', methods=["POST"])
 def adicionar_livros():
     verificacao = informar_verificacao(2)
