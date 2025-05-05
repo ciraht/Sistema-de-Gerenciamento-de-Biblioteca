@@ -2036,7 +2036,7 @@ def deletar_reservas(id_reserva):
     }), 200
 
 
-@app.route('/pesquisa', methods=["POST"])
+@app.route('/livros/pesquisa', methods=["POST"])
 def pesquisar():
     data = request.get_json()
     pesquisa = data.get("pesquisa", "").strip()
@@ -2094,6 +2094,93 @@ def pesquisar():
                 params.append(tag)
     if conditions:
         sql += " AND " + " AND ".join(conditions)
+
+    sql += " ORDER BY a.titulo"
+
+    cur.execute(sql, params)
+    resultados = cur.fetchall()
+    cur.close()
+
+    if not resultados:
+        return jsonify({"message": "Nenhum resultado encontrado."}), 404
+
+    return jsonify({
+        "message": "Pesquisa realizada com sucesso.",
+        "resultados": [{
+            "id": r[0],
+            "titulo": r[1],
+            "autor": r[2],
+            "categoria": r[3],
+            "isbn": r[4],
+            "qtd_disponivel": r[5],
+            "descricao": r[6],
+            "imagem": f"{r[0]}.jpeg"
+        } for r in resultados]
+    }), 200
+
+
+@app.route('/livros/pesquisa/gerenciar', methods=["POST"])
+def pesquisar_livros_biblio():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    filtros = data.get("filtros", {})
+
+    if not pesquisa and not filtros:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+
+    sql = """
+        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn,
+                        a.qtd_disponivel, a.descricao
+        FROM acervo a
+        LEFT JOIN livro_tags lt ON a.id_livro = lt.id_livro
+        LEFT JOIN tags t ON lt.id_tag = t.id_tag
+        WHERE 
+    """
+
+    conditions = []
+    params = []
+
+    if pesquisa:
+        conditions.append("(a.titulo CONTAINING ? OR a.autor CONTAINING ? OR a.categoria CONTAINING ?)")
+        params.extend([pesquisa] * 3)
+
+    if filtros.get("autor"):
+        conditions.append("a.autor CONTAINING ?")
+        params.append(filtros["autor"])
+
+    ano = filtros.get("ano_publicacao")
+    if ano and ano.isdigit() and len(ano) == 4:
+        conditions.append("a.ano_publicado = ?")
+        params.append(int(ano))
+
+    isbn = filtros.get("isbn")
+    if isbn:
+        conditions.append("a.isbn CONTAINING ?")
+        params.append(isbn)
+
+    if filtros.get("categoria"):
+        conditions.append("a.categoria CONTAINING ?")
+        params.append(filtros["categoria"])
+
+    if filtros.get("idioma"):
+        conditions.append("a.idiomas CONTAINING ?")
+        params.append(filtros["idioma"])
+
+    if filtros.get("tags"):
+        tag_list = filtros["tags"]
+        if isinstance(tag_list, list) and tag_list:
+            for tag in tag_list:
+                conditions.append(
+                    "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag CONTAINING ?)")
+                params.append(tag)
+    if conditions:
+        sql += " AND ".join(conditions)
 
     sql += " ORDER BY a.titulo"
 
@@ -3936,6 +4023,66 @@ def get_all_multas():
     ])
 
 
+@app.route("/usuarios/pesquisa", methods=["POST"])
+def pesquisar_usuarios():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    filtros = data.get("filtros", {})
+
+    if not pesquisa and not filtros:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+
+    sql = """
+            SELECT DISTINCT u.id_usuario, u.nome, u.email, u.telefone, u.endereco,
+                            u.tipo, u.ativo
+            FROM USUARIOS u 
+            WHERE 
+        """
+
+    conditions = []
+    params = []
+
+    if pesquisa:
+        conditions.append("(u.nome CONTAINING ? OR u.email CONTAINING ?)")
+        params.extend([pesquisa] * 3)
+
+    if filtros.get("tipo"):
+        conditions.append("(u.tipo = ?)")
+        params.append(filtros["tipo"])
+
+    if conditions:
+        sql += " AND ".join(conditions)
+
+    sql += " ORDER BY u.nome"
+
+    cur.execute(sql, params)
+    resultados = cur.fetchall()
+    cur.close()
+
+    if not resultados:
+        return jsonify({"message": "Nenhum resultado encontrado."}), 404
+
+    return jsonify({
+        "message": "Pesquisa realizada com sucesso.",
+        "resultados": [{
+            "id": r[0],
+            "nome": r[1],
+            "email": r[2],
+            "telefone": r[3],
+            "endereco": r[4],
+            "tipo": r[5],
+            "ativo": r[6],
+            "imagem": f"{r[0]}.jpeg"
+        } for r in resultados]
+    }), 200
+
+
 @app.route("/usuarios/<int:id>/multas", methods=["GET"])
 def get_multas_by_id(id):
     verificacao = informar_verificacao(2)
@@ -4110,6 +4257,121 @@ def get_all_movimentacoes():
             'data_validade': r[4].isoformat(timespec='minutes') if r[4] else None,
             'status': r[5]
         })
+
+    # Ordenar pela data_evento (mais recente primeiro)
+    movimentacoes.sort(key=lambda x: x['data_evento'], reverse=True)
+
+    # Remover o campo datetime bruto (não serializável)
+    for m in movimentacoes:
+        del m['data_evento']
+
+    cur.close()
+    return jsonify(movimentacoes)
+
+
+@app.route("/movimentacoes/pesquisa", methods=["POST"])
+def pesquisar_movimentacoes():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa_usuario = data.get("pesquisaUsuario", "").strip()
+    pesquisa_titulo = data.get("pesquisaTitulo", "").strip()
+    tipo_mov = data.get("tipoMovimentacao")
+
+    pesquisa_titulo = "" if not pesquisa_titulo else pesquisa_titulo
+    pesquisa_usuario = "" if not pesquisa_usuario else pesquisa_usuario
+    tipo_mov = "todos" if not tipo_mov else tipo_mov
+
+    cur = con.cursor()
+
+    sql_emp = """SELECT 
+                E.ID_EMPRESTIMO, 
+                U.NOME, 
+                LIST(A.TITULO, ', ') AS TITULOS,
+                E.DATA_CRIACAO, 
+                E.DATA_RETIRADA, 
+                E.DATA_DEVOLVER, 
+                E.DATA_DEVOLVIDO, 
+                E.DATA_VALIDADE,
+                E.STATUS
+            FROM EMPRESTIMOS E
+            JOIN USUARIOS U ON E.ID_USUARIO = U.ID_USUARIO
+            JOIN ITENS_EMPRESTIMO IE ON IE.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON IE.ID_LIVRO = A.ID_LIVRO
+            WHERE E.STATUS IN ('PENDENTE', 'ATIVO', 'CANCELADO', 'DEVOLVIDO')
+            """
+
+    sql_res = """
+            SELECT 
+                R.ID_RESERVA, 
+                U.NOME, 
+                LIST(A.TITULO, ', ') AS TITULOS,
+                R.DATA_CRIACAO, 
+                R.DATA_VALIDADE, 
+                R.STATUS
+            FROM RESERVAS R
+            JOIN USUARIOS U ON R.ID_USUARIO = U.ID_USUARIO
+            JOIN ITENS_RESERVA IR ON IR.ID_RESERVA = R.ID_RESERVA
+            JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+            WHERE R.STATUS IN ('PENDENTE', 'EM ESPERA', 'CANCELADA', 'EXPIRADA', 'ATENDIDA')
+        """
+
+    if tipo_mov == "devolucao":
+        sql_emp += " AND E.DATA_DEVOLVIDO IS NOT NULL"
+
+    if pesquisa_titulo:
+        sql_emp += f" AND A.TITULO CONTAINING '{pesquisa_titulo}'"
+        sql_res += f" AND A.TITULO CONTAINING '{pesquisa_titulo}'"
+
+    if pesquisa_usuario:
+        sql_emp += f" AND U.NOME CONTAINING '{pesquisa_usuario}'"
+        sql_res += f" AND U.NOME CONTAINING '{pesquisa_usuario}'"
+
+    sql_emp += " GROUP BY E.ID_EMPRESTIMO, U.NOME, E.DATA_CRIACAO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO, E.DATA_VALIDADE, E.STATUS"
+    sql_res += " GROUP BY R.ID_RESERVA, U.NOME, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS"
+
+    # Consulta de empréstimos com títulos agrupados
+    cur.execute(sql_emp)
+    emprestimos = cur.fetchall()
+
+    # Consulta de reservas com títulos agrupados
+    cur.execute(sql_res)
+    reservas = cur.fetchall()
+
+    movimentacoes = []
+
+    if tipo_mov == "emprestimo" or tipo_mov == "todos" or tipo_mov == "devolucao":
+        for e in emprestimos:
+            movimentacoes.append({
+                'tipo': 'emprestimo',
+                'id': e[0],
+                'usuario': e[1],
+                'titulo': e[2],
+                'data_evento': e[3],  # Para ordenação
+                'data_evento_str': e[3].isoformat(timespec='minutes') if e[3] else None,
+                'data_criacao': e[3].isoformat(timespec='minutes') if e[3] else None,
+                'data_retirada': e[4].isoformat(timespec='minutes') if e[4] else None,
+                'data_devolver': e[5].isoformat(timespec='minutes') if e[5] else None,
+                'data_devolvida': e[6].isoformat(timespec='minutes') if e[6] else None,
+                'data_validade': e[7].isoformat(timespec='minutes') if e[7] else None,
+                'status': e[8]
+            })
+
+    if tipo_mov == "reserva" or tipo_mov == "todos":
+        for r in reservas:
+            movimentacoes.append({
+                'tipo': 'reserva',
+                'id': r[0],
+                'usuario': r[1],
+                'titulo': r[2],
+                'data_evento': r[3],  # Para ordenação
+                'data_evento_str': r[3].isoformat(timespec='minutes') if r[3] else None,
+                'data_criacao': r[3].isoformat(timespec='minutes') if r[3] else None,
+                'data_validade': r[4].isoformat(timespec='minutes') if r[4] else None,
+                'status': r[5]
+            })
 
     # Ordenar pela data_evento (mais recente primeiro)
     movimentacoes.sort(key=lambda x: x['data_evento'], reverse=True)
