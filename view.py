@@ -2119,6 +2119,94 @@ def pesquisar():
     }), 200
 
 
+@app.route('/livros/pesquisa/<int:pagina>', methods=["POST"])
+def pesquisar_livros(pagina):
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    filtros = data.get("filtros", {})
+
+    pagina = 1 if not pagina else pagina
+
+    if not pesquisa and not filtros:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+
+    sql = """
+        SELECT DISTINCT a.id_livro, a.titulo, a.autor, a.categoria, a.isbn,
+                        a.qtd_disponivel, a.descricao
+        FROM acervo a
+        LEFT JOIN livro_tags lt ON a.id_livro = lt.id_livro
+        LEFT JOIN tags t ON lt.id_tag = t.id_tag
+        WHERE a.disponivel = TRUE
+    """
+
+    conditions = []
+    params = []
+
+    if pesquisa:
+        conditions.append("(a.titulo CONTAINING ? OR a.autor CONTAINING ? OR a.categoria CONTAINING ?)")
+        params.extend([pesquisa] * 3)
+
+    if filtros.get("autor"):
+        conditions.append("a.autor CONTAINING ?")
+        params.append(filtros["autor"])
+
+    ano = filtros.get("ano_publicacao")
+    if ano and ano.isdigit() and len(ano) == 4:
+        conditions.append("a.ano_publicado = ?")
+        params.append(int(ano))
+
+    isbn = filtros.get("isbn")
+    if isbn:
+        conditions.append("a.isbn CONTAINING ?")
+        params.append(isbn)
+
+    if filtros.get("categoria"):
+        conditions.append("a.categoria CONTAINING ?")
+        params.append(filtros["categoria"])
+
+    if filtros.get("idioma"):
+        conditions.append("a.idiomas CONTAINING ?")
+        params.append(filtros["idioma"])
+
+    if filtros.get("tags"):
+        tag_list = filtros["tags"]
+        if isinstance(tag_list, list) and tag_list:
+            for tag in tag_list:
+                conditions.append(
+                    "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag CONTAINING ?)")
+                params.append(tag)
+    if conditions:
+        sql += " AND " + " AND ".join(conditions)
+
+    inicial = pagina*10 - 9
+    # print(f'ROWS {inicial} to {pagina*10}')
+
+    sql += f" ORDER BY a.titulo ROWS {inicial} TO {pagina*10}"
+
+    cur.execute(sql, params)
+    resultados = cur.fetchall()
+    cur.close()
+
+    if not resultados:
+        return jsonify({"message": "Nenhum resultado encontrado."}), 404
+
+    return jsonify({
+        "message": "Pesquisa realizada com sucesso.",
+        "resultados": [{
+            "id": r[0],
+            "titulo": r[1],
+            "autor": r[2],
+            "categoria": r[3],
+            "isbn": r[4],
+            "qtd_disponivel": r[5],
+            "descricao": r[6],
+            "imagem": f"{r[0]}.jpeg"
+        } for r in resultados]
+    }), 200
+
+
 @app.route('/livros/pesquisa/gerenciar', methods=["POST"])
 def pesquisar_livros_biblio():
     verificacao = informar_verificacao(2)
