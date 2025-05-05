@@ -2248,12 +2248,12 @@ def relatorio_livros_faltando_json():
                 a.autor, 
                 a.CATEGORIA, 
                 a.ISBN, 
-                a.QTD_DISPONIVEL,  
+                a.QTD_DISPONIVEL,
                 a.ANO_PUBLICADO
             FROM ACERVO a
             INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
             INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
-            WHERE e.STATUS = 'ATIVO'
+            WHERE e.STATUS IN ('ATIVO')
             GROUP BY 
                 a.id_livro, 
                 a.titulo, 
@@ -2338,9 +2338,8 @@ def relatorio_usuarios_json():
         "usuarios": usuarios_json
     })
 
-
-@app.route('/relatorio/gerar/livros', methods=['GET'])
-def gerar_relatorio_livros():
+@app.route('/relatorio/gerar/livros/faltando', methods=['GET'])
+def gerar_relatorio_livros_faltando():
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
@@ -2360,7 +2359,7 @@ def gerar_relatorio_livros():
         FROM ACERVO a
         INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
         INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
-        WHERE e.STATUS = 'ATIVO'
+        WHERE e.STATUS in ('ATIVO')
         GROUP BY 
             a.id_livro, 
             a.titulo, 
@@ -2391,6 +2390,84 @@ def gerar_relatorio_livros():
     pdf.set_font("Arial", size=12)
 
     subtitulos = ["ID", "Titulo", "Quantidade Emprestada", "Autor", "Categoria", "ISBN", "Quantidade Total",
+                  "Descrição", "Idiomas", "Ano Publicado"]
+
+    print(len(livros))
+
+    for livro in livros:
+        for i in range(len(subtitulos)):
+            pdf.set_font("Arial", 'B', 14)
+            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+
+            texto = livro[i]
+            texto = str(texto)
+
+            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
+            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+
+            pdf.set_font("Arial", '', 12)
+            pdf.multi_cell(50, 5, f"{texto}")
+            pdf.ln(1)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(7)
+
+    pdf_path = "relatorio_livros.pdf"
+    pdf.output(pdf_path)
+
+    try:
+        return send_file(pdf_path, as_attachment=False, mimetype='application/pdf')
+    except Exception as e:
+        print(e)
+        return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
+@app.route('/relatorio/gerar/livros', methods=['GET'])
+def gerar_relatorio_livros():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+    cur = con.cursor()
+    cur.execute("""
+        SELECT 
+            a.id_livro, 
+            a.titulo,
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.IDIOMAS, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        GROUP BY 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.IDIOMAS, 
+            a.ANO_PUBLICADO
+        ORDER BY a.id_livro
+    """)
+    livros = cur.fetchall()
+    cur.close()
+
+    contador_livros = len(livros)  # Definir o contador de livros antes do loop
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style='B', size=16)
+    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.set_font("Arial", style='B', size=13)
+    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+    pdf.ln(5)  # Espaço entre o título e a linha
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+    pdf.ln(5)  # Espaço após a linha
+    pdf.set_font("Arial", size=12)
+
+    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Total",
                   "Descrição", "Idiomas", "Ano Publicado"]
 
     print(len(livros))
