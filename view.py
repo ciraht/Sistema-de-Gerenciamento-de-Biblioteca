@@ -1067,7 +1067,7 @@ def get_livros():
                 a.ANO_PUBLICADO
             FROM ACERVO a
             where disponivel = true
-            ORDER BY a.id_livro;
+            ORDER BY a.id_livro asc;
         """
                 )
 
@@ -1233,6 +1233,59 @@ def dez_da_semana():
         raise
     finally:
         cur.close()
+
+
+@app.route('/livros/novidades', methods=["GET"])
+def get_livros_novos():
+    cur = con.cursor()
+    cur.execute("""
+                SELECT 
+                    a.id_livro, 
+                    a.titulo, 
+                    a.autor, 
+                    a.CATEGORIA, 
+                    a.ISBN, 
+                    a.QTD_DISPONIVEL, 
+                    a.DESCRICAO, 
+                    a.idiomas, 
+                    a.ANO_PUBLICADO
+                FROM ACERVO a
+                where disponivel = true
+                ORDER BY a.id_livro desc
+                rows 1 to 10;
+            """
+                )
+
+    livros = []
+    for r in cur.fetchall():
+        cur.execute("""
+                SELECT t.id_tag, t.nome_tag
+                FROM LIVRO_TAGS lt
+                LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                WHERE lt.ID_LIVRO = ?
+            """, (r[0],))
+        tags = cur.fetchall()
+
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+        livro = {
+            'id': r[0],
+            'titulo': r[1],
+            'autor': r[2],
+            'categoria': r[3],
+            'isbn': r[4],
+            'qtd_disponivel': r[5],
+            'descricao': r[6],
+            'idiomas': r[7],
+            'ano_publicacao': r[8],
+            'selectedTags': selected_tags,
+            'imagem': f"{r[0]}.jpeg"
+        }
+
+        livros.append(livro)
+
+    cur.close()
+    return jsonify(livros), 200
 
 
 # @app.route('/livros/recomendados', methods=["GET"])
@@ -2247,8 +2300,24 @@ def avaliar_livro(id):
         data = request.get_json()
         valor = data.get("valor")
         id_usuario = payload['id_usuario']
-
         cur = con.cursor()
+
+        # Ver se o livro existe
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id, ))
+        if not cur.fetchone():
+            return jsonify({"message": "Tentativa de avaliar livro inexistente."}), 404
+
+        # Ver se o usuário já leu o livro e só então liberar caso tenha
+        sql = """
+            SELECT 1 FROM EMPRESTIMOS 
+            WHERE ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?) 
+            AND ID_USUARIO = ?"""
+
+        cur.execute(sql, (id, id_usuario, ))
+
+        if not cur.fetchone():
+            return jsonify({"message": "Você precisa ler o livro antes de o avaliar"}), 401
+
         cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario,))
         if cur.fetchone():
             # print("editado")
@@ -2256,17 +2325,18 @@ def avaliar_livro(id):
                         (valor, id, id_usuario,))
             con.commit()
             cur.close()
-            return jsonify({"message": "Avaliado com sucesso! EDITADO"}), 200
+            return jsonify({"message": "Livro avaliado."}), 200
         else:
             # print("inserido")
             cur.execute("INSERT INTO AVALIACOES (VALOR_TOTAL, ID_LIVRO, ID_USUARIO) VALUES (?, ?, ?)",
                         (valor, id, id_usuario))
     except Exception as e:
+        print(e)
         return jsonify({
-            "error": f"Erro ao editar registro de avaliação: {e}\n Excluir registros de avaliacoes desse livro do banco de dados"}), 500
+            "error": f"Erro ao editar registro de avaliação: {e}"}), 500
 
     return jsonify({
-        "message": "Avaliado com sucesso! ADICIONADO"
+        "message": "Livro avaliado."
     }), 200
 
 
