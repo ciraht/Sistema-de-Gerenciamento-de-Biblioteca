@@ -1085,8 +1085,8 @@ def excluir_imagem(id_usuario):
     return jsonify({"message": "Imagem de perfil excluída com sucesso."}, 200)
 
 
-@app.route('/livros/<int:pagina>', methods=["GET"])
-def get_livros(pagina):
+@app.route('/livros', methods=["GET"])
+def get_livros():
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -1135,11 +1135,7 @@ def get_livros(pagina):
 
     cur.close()
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
-
-    return jsonify(livros[inicial - 1:final]), 200
+    return jsonify(livros), 200
 
 
 @app.route('/livrosadm/<int:pagina>', methods=["GET"])
@@ -1375,12 +1371,14 @@ def recomendar_com_base_em():
     cur.execute("""
         SELECT DISTINCT A.ID_LIVRO, A.TITULO FROM ACERVO A
         INNER JOIN ITENS_EMPRESTIMO IE ON IE.ID_LIVRO = A.ID_LIVRO
-        WHERE IE.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.ID_USUARIO = ?)
+        WHERE IE.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.ID_USUARIO = ?) 
+            AND A.DISPONIVEL = TRUE
         ORDER BY IE.ID_ITEM DESC
         ROWS 1
         """, (id_usuario, ))
     livro_analisado = cur.fetchone()
     if not livro_analisado:
+        cur.close()
         return jsonify({"visivel": False})
 
     # Trazer livros que tenham as mesmas tags que o livro escolhido
@@ -1397,10 +1395,11 @@ def recomendar_com_base_em():
                     a.ANO_PUBLICADO
                 FROM ACERVO a
                 JOIN LIVRO_TAGS LT ON LT.ID_LIVRO = A.ID_LIVRO 
-                    WHERE LT.ID_TAG IN (SELECT ID_TAG FROM LIVRO_TAGS WHERE ID_LIVRO = ?) AND a.disponivel = true
+                    WHERE LT.ID_TAG IN (SELECT ID_TAG FROM LIVRO_TAGS WHERE ID_LIVRO = ?) 
+                    AND a.disponivel = true AND A.ID_LIVRO <> ?
                 
                 ORDER BY a.id_livro asc;
-            """, (livro_analisado[0], ))
+            """, (livro_analisado[0], livro_analisado[0], ))
 
     livros = []
     for r in cur.fetchall():
@@ -1432,6 +1431,133 @@ def recomendar_com_base_em():
 
     cur.close()
     return jsonify({"livroAnalisado": livro_analisado, "livros": livros, "visivel": True}), 200
+
+
+@app.route('/livros/minhalista', methods=["GET"])
+def trazer_minha_lista():
+
+    verificacao = informar_verificacao()
+    if verificacao:
+        return jsonify({"visivel": False})
+
+    id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
+
+    cur = con.cursor()
+    cur.execute("""
+        SELECT 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        INNER JOIN LISTAGEM L ON L.ID_LIVRO = a.ID_LIVRO
+        WHERE a.disponivel = true 
+        AND L.ID_USUARIO = ?
+        ORDER BY a.id_livro ASC;
+            """
+                , (id_usuario, ))
+
+    livros_listados = cur.fetchall()
+    if not livros_listados:
+        cur.close()
+        return jsonify({"visivel": False}), 401
+
+    livros = []
+    for r in livros_listados:
+        cur.execute("""
+                SELECT t.id_tag, t.nome_tag
+                FROM LIVRO_TAGS lt
+                LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                WHERE lt.ID_LIVRO = ?
+            """, (r[0],))
+        tags = cur.fetchall()
+
+        selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+        livro = {
+            'id': r[0],
+            'titulo': r[1],
+            'autor': r[2],
+            'categoria': r[3],
+            'isbn': r[4],
+            'qtd_disponivel': r[5],
+            'descricao': r[6],
+            'idiomas': r[7],
+            'ano_publicacao': r[8],
+            'selectedTags': selected_tags,
+            'imagem': f"{r[0]}.jpeg"
+        }
+
+        livros.append(livro)
+
+    cur.close()
+
+    return jsonify(livros), 200
+
+
+@app.route('/livros/minhalista/adicionar/<int:id_livro>', methods=["POST"])
+def adicionar_na_minha_lista(id_livro):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
+
+    cur = con.cursor()
+
+    # Verificações
+    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro, ))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message": "ID de livro não encontrado."}), 404
+
+    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro, ))
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"message": "Este livro não está disponível."}), 401
+
+    cur.execute("""
+        SELECT 1 FROM ACERVO A 
+        INNER JOIN LISTAGEM L ON L.ID_LIVRO = A.ID_LIVRO 
+        WHERE A.ID_LIVRO = ? AND L.ID_USUARIO = ?
+        """, (id_livro, id_usuario))
+    if cur.fetchone():
+        cur.close()
+        return jsonify({"message": "Este livro já está em sua lista."}), 401
+
+    # Adicionando na tabela de listagem
+    cur.execute("INSERT INTO LISTAGEM (ID_USUARIO, ID_LIVRO) VALUES(?, ?)", (id_usuario, id_livro, ))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Livro adicionado em Minha Lista."}), 200
+
+
+@app.route('/livros/minhalista/excluir/<int:id_livro>', methods=["DELETE"])
+def excluir_da_minha_lista(id_livro):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
+
+    cur = con.cursor()
+
+    # Verificações
+    cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro, ))
+    if not cur.fetchone():
+        cur.close()
+        return jsonify({"message": "ID de livro não encontrado."}), 404
+
+    # Excluindo da tabela de listagem
+    cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro, ))
+    con.commit()
+    cur.close()
+    return jsonify({"message": "Livro excluído de Minha Lista."}), 200
 
 
 @app.route('/adicionar_livros', methods=["POST"])
@@ -1701,6 +1827,7 @@ def alterar_disponibilidade_livro():
     cur.execute("SELECT DISPONIVEL FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
     disponivel = cur.fetchone()
     if not disponivel:
+        cur.close()
         return jsonify({"error": "Não foi possível verificar a disponibilidade do livro."}), 401
 
     if not disponivel[0]:
@@ -1819,6 +1946,17 @@ def alterar_disponibilidade_livro():
             </div>
             """
             enviar_email_async(email, assunto, corpo)
+
+    cur.execute("SELECT ID_USUARIO FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro, ))
+    listadores_livro = cur.fetchall()
+    for listador in listadores_livro:
+        # Excluindo da tabela de listagem
+        id_usuario = listador[0]
+        cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro,))
+
+        mensagem = f"O livro {titulo}, de {autor} agora está indisponível e portanto foi retirado de sua lista."
+        titulo = "Aviso sobre Seus Livros Listados"
+        criar_notificacao(id_usuario, mensagem, titulo)
 
     # E finalmente, na lista de livros
     cur.execute("UPDATE ACERVO SET DISPONIVEL = FALSE WHERE ID_livro = ?", (id_livro,))
