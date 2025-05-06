@@ -38,6 +38,7 @@ def handle_join_usuario(data):
     join_room(f"user_{id_usuario}")
     emit("usuario_conectado", {"msg": f"Conectado à sala user_{id_usuario}"})
 
+
 def configuracoes():
     cur = con.cursor()
     cur.execute("""
@@ -305,7 +306,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 
 # Rota para testes de e-mail
 @app.route('/email_teste', methods=['GET'])
-def enviar_emails():
+def enviar_emails_teste():
     cur = con.cursor()
     EMAIL_PARA_RECEBER_RESULTADOS = 'othaviohma2014@gmail.com'
     cur.execute(
@@ -461,6 +462,7 @@ def trazer_notificacoes():
 
     return jsonify({"notificacoes": notificacoes})
 
+
 # Nova rota opcional se quiser avisar que o usuário "visualizou"
 @app.route('/notificacoes/visualizadas', methods=["POST"])
 def marcar_visualizadas():
@@ -471,6 +473,7 @@ def marcar_visualizadas():
     id_usuario = verificacao['id_usuario']
     socketio.emit("notificacoes_visualizadas", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
     return jsonify({"message": "Notificações marcadas como visualizadas"}), 200
+
 
 def nova_notificacao_para_usuario(id_usuario, notificacao):
     socketio.emit("nova_notificacao", notificacao, room=str(id_usuario))
@@ -1375,7 +1378,7 @@ def recomendar_com_base_em():
             AND A.DISPONIVEL = TRUE
         ORDER BY IE.ID_ITEM DESC
         ROWS 1
-        """, (id_usuario, ))
+        """, (id_usuario,))
     livro_analisado = cur.fetchone()
     if not livro_analisado:
         cur.close()
@@ -1399,7 +1402,7 @@ def recomendar_com_base_em():
                     AND a.disponivel = true AND A.ID_LIVRO <> ?
                 
                 ORDER BY a.id_livro asc;
-            """, (livro_analisado[0], livro_analisado[0], ))
+            """, (livro_analisado[0], livro_analisado[0],))
 
     livros = []
     for r in cur.fetchall():
@@ -1435,7 +1438,6 @@ def recomendar_com_base_em():
 
 @app.route('/livros/minhalista', methods=["GET"])
 def trazer_minha_lista():
-
     verificacao = informar_verificacao()
     if verificacao:
         return jsonify({"visivel": False})
@@ -1460,7 +1462,7 @@ def trazer_minha_lista():
         AND L.ID_USUARIO = ?
         ORDER BY a.id_livro ASC;
             """
-                , (id_usuario, ))
+                , (id_usuario,))
 
     livros_listados = cur.fetchall()
     if not livros_listados:
@@ -1511,12 +1513,12 @@ def adicionar_na_minha_lista(id_livro):
     cur = con.cursor()
 
     # Verificações
-    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro, ))
+    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "ID de livro não encontrado."}), 404
 
-    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro, ))
+    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro,))
     if cur.fetchone():
         cur.close()
         return jsonify({"message": "Este livro não está disponível."}), 401
@@ -1531,7 +1533,7 @@ def adicionar_na_minha_lista(id_livro):
         return jsonify({"message": "Este livro já está em sua lista."}), 401
 
     # Adicionando na tabela de listagem
-    cur.execute("INSERT INTO LISTAGEM (ID_USUARIO, ID_LIVRO) VALUES(?, ?)", (id_usuario, id_livro, ))
+    cur.execute("INSERT INTO LISTAGEM (ID_USUARIO, ID_LIVRO) VALUES(?, ?)", (id_usuario, id_livro,))
     con.commit()
     cur.close()
     return jsonify({"message": "Livro adicionado em Minha Lista."}), 200
@@ -1548,13 +1550,13 @@ def excluir_da_minha_lista(id_livro):
     cur = con.cursor()
 
     # Verificações
-    cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro, ))
+    cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro,))
     if not cur.fetchone():
         cur.close()
         return jsonify({"message": "ID de livro não encontrado."}), 404
 
     # Excluindo da tabela de listagem
-    cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro, ))
+    cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro,))
     con.commit()
     cur.close()
     return jsonify({"message": "Livro excluído de Minha Lista."}), 200
@@ -1947,7 +1949,7 @@ def alterar_disponibilidade_livro():
             """
             enviar_email_async(email, assunto, corpo)
 
-    cur.execute("SELECT ID_USUARIO FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro, ))
+    cur.execute("SELECT ID_USUARIO FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro,))
     listadores_livro = cur.fetchall()
     for listador in listadores_livro:
         # Excluindo da tabela de listagem
@@ -2093,7 +2095,7 @@ def devolver_emprestimo(id):
         JOIN EMPRESTIMOS E ON E.ID_USUARIO = U.ID_USUARIO
         INNER JOIN MULTAS M ON M.ID_EMPRESTIMO =  E.ID_EMPRESTIMO
         WHERE M.PAGO = FALSE AND M.ID_EMPRESTIMO = ?
-    """, (id, ))
+    """, (id,))
 
     tangao = cur.fetchone()
 
@@ -2405,8 +2407,8 @@ def pesquisar_livros(pagina):
     if conditions:
         sql += " AND " + " AND ".join(conditions)
 
-    inicial = pagina*10 - 9 if pagina == 1 else pagina*8 - 7
-    final = pagina*8
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
     print(f'ROWS {inicial} to {final}')
 
     sql += f" ORDER BY a.titulo ROWS {inicial} TO {final}"
@@ -2558,7 +2560,7 @@ def avaliar_livro(id):
         cur = con.cursor()
 
         # Ver se o livro existe
-        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id, ))
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id,))
         if not cur.fetchone():
             return jsonify({"message": "Tentativa de avaliar livro inexistente."}), 404
 
@@ -2568,7 +2570,7 @@ def avaliar_livro(id):
             WHERE ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?) 
             AND ID_USUARIO = ?"""
 
-        cur.execute(sql, (id, id_usuario, ))
+        cur.execute(sql, (id, id_usuario,))
 
         if not cur.fetchone():
             return jsonify({"message": "Você precisa ler o livro antes de o avaliar"}), 401
@@ -3235,8 +3237,10 @@ def trocar_tipo(id):
     return jsonify({"message": "Usuário atualizado com sucesso.", "tipo": data}), 202
 
 
-@app.route("/puxar_historico", methods=["GET"])
-def puxar_historico():
+@app.route(
+    "/puxar_historico/<int:pagina_emp_ativ>/<int:pagina_emp_conc>/<int:pagina_res_ativ>/<int:pagina_mul_pend>/<int:pagina_mul_conc>",
+    methods=["GET"])
+def puxar_historico(pagina_emp_ativ, pagina_emp_conc, pagina_res_ativ, pagina_mul_pend, pagina_mul_conc):
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
@@ -3257,6 +3261,10 @@ def puxar_historico():
                 ORDER BY E.DATA_DEVOLVER ASC
             """, (id_logado,))
         emprestimos_ativos = cur.fetchall()
+        inicial = pagina_emp_ativ * 10 - 9 if pagina_emp_ativ == 1 else pagina_emp_ativ * 8 - 7
+        final = pagina_emp_ativ * 8
+        # print(f'ROWS {inicial} to {final}')
+        emprestimos_ativos = emprestimos_ativos[inicial - 1:final]
 
         # Emprestimos Concluídos
         cur.execute("""
@@ -3268,6 +3276,10 @@ def puxar_historico():
                 ORDER BY E.DATA_DEVOLVIDO DESC
             """, (id_logado,))
         emprestimos_concluidos = cur.fetchall()
+        inicial = pagina_emp_conc * 10 - 9 if pagina_emp_conc == 1 else pagina_emp_conc * 8 - 7
+        final = pagina_emp_conc * 8
+        # print(f'ROWS {inicial} to {final}')
+        emprestimos_concluidos = emprestimos_concluidos[inicial - 1:final]
 
         # Reservas Ativas - Obtendo os livros relacionados às reservas
         cur.execute("""
@@ -3279,22 +3291,63 @@ def puxar_historico():
                 ORDER BY R.DATA_VALIDADE ASC
             """, (id_logado,))
         reservas_ativas = cur.fetchall()
+        inicial = pagina_res_ativ * 10 - 9 if pagina_res_ativ == 1 else pagina_res_ativ * 8 - 7
+        final = pagina_res_ativ * 8
+        # print(f'ROWS {inicial} to {final}')
+        reservas_ativas = reservas_ativas[inicial - 1:final]
+
+        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+        data_atual = cur.fetchone()[0]
 
         # Multas Pendentes
         cur.execute("""
-                SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+                 SELECT 
+                    M.ID_MULTA, 
+                    M.VALOR_BASE, 
+                    M.VALOR_ACRESCIMO, 
+                    M.ID_EMPRESTIMO, 
+                    M.PAGO, 
+                    M.VALOR_BASE,
+                    CAST(E.DATA_DEVOLVER as DATE)
                 FROM MULTAS M
-                WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
+                JOIN EMPRESTIMOS e ON e.ID_EMPRESTIMO = M.ID_EMPRESTIMO 
+                WHERE M.ID_USUARIO = ?
+                  AND M.PAGO = FALSE;
             """, (id_logado,))
         multas_pendentes = cur.fetchall()
 
+        multas_pendentes_lista = []
+
+        for lista in multas_pendentes:
+            lista += ((((data_atual - lista[6]).days * lista[2]) + lista[1]),)
+            multas_pendentes_lista.append(lista)
+
+        multas_pendentes_lista = multas_pendentes_lista[inicial - 1:final]
+
         # Multas Concluidas
         cur.execute("""
-                    SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
-                    FROM MULTAS M
-                    WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
-                """, (id_logado,))
+                         SELECT 
+                            M.ID_MULTA, 
+                            M.VALOR_BASE, 
+                            M.VALOR_ACRESCIMO, 
+                            M.ID_EMPRESTIMO, 
+                            M.PAGO, 
+                            M.VALOR_BASE,
+                            CAST(E.DATA_DEVOLVIDO as DATE)
+                        FROM MULTAS M
+                        JOIN EMPRESTIMOS e ON e.ID_EMPRESTIMO = M.ID_EMPRESTIMO 
+                        WHERE M.ID_USUARIO = ?
+                          AND M.PAGO = TRUE;
+                    """, (id_logado,))
         multas_concluidas = cur.fetchall()
+
+        multas_concluidas_lista = []
+
+        for lista in multas_concluidas:
+            lista += ((((data_atual - lista[6]).days * lista[2]) + lista[1]),)
+            multas_concluidas_lista.append(lista)
+
+        multas_concluidas_lista = multas_concluidas_lista[inicial - 1:final]
 
         historico = {
             "emprestimos_ativos": [
@@ -3314,13 +3367,13 @@ def puxar_historico():
             ],
             "multas_pendentes": [
                 {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
-                 "pago": m[4]}
-                for m in multas_pendentes
+                 "pago": m[4], "total": m[7]}
+                for m in multas_pendentes_lista
             ],
             "multas_concluidas": [
                 {"id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2], "id_emprestimo": m[3],
-                 "pago": m[4]}
-                for m in multas_concluidas
+                 "pago": m[4], "total": m[7]}
+                for m in multas_concluidas_lista
             ]
         }
         return jsonify(historico)
@@ -4620,7 +4673,7 @@ def get_all_movimentacoes(pagina):
     final = pagina * 8
     print(f'ROWS {inicial} to {final}')
 
-    return jsonify(movimentacoes[inicial-1:final])
+    return jsonify(movimentacoes[inicial - 1:final])
 
 
 @app.route("/movimentacoes/pesquisa/<int:pagina>", methods=["POST"])
@@ -4740,7 +4793,7 @@ def pesquisar_movimentacoes(pagina):
     final = pagina * 8
     print(f'ROWS {inicial} to {final}')
 
-    return jsonify(movimentacoes[inicial-1:final])
+    return jsonify(movimentacoes[inicial - 1:final])
 
 
 @app.route("/valor/criar", methods=["POST"])
