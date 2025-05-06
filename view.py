@@ -17,8 +17,10 @@ from flask_socketio import SocketIO, emit, join_room
 senha_secreta = app.config['SECRET_KEY']
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+
 def notificar_usuario_ws(id_usuario):
     socketio.emit("nova_notificacao", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
+
 
 @socketio.on("join_usuario")
 def handle_join_usuario(data):
@@ -1083,8 +1085,8 @@ def excluir_imagem(id_usuario):
     return jsonify({"message": "Imagem de perfil excluída com sucesso."}, 200)
 
 
-@app.route('/livros', methods=["GET"])
-def get_livros():
+@app.route('/livros/<int:pagina>', methods=["GET"])
+def get_livros(pagina):
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -1132,11 +1134,16 @@ def get_livros():
         livros.append(livro)
 
     cur.close()
-    return jsonify(livros), 200
+
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    return jsonify(livros[inicial - 1:final]), 200
 
 
-@app.route('/livrosadm', methods=["GET"])
-def get_livros_adm():
+@app.route('/livrosadm/<int:pagina>', methods=["GET"])
+def get_livros_adm(pagina):
     cur = con.cursor()
     cur.execute("""
             SELECT 
@@ -1185,7 +1192,11 @@ def get_livros_adm():
         livros.append(livro)
 
     cur.close()
-    return jsonify(livros), 200
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    return jsonify(livros[inicial - 1:final]), 200
 
 
 @app.route('/livros/10dasemana', methods=["GET"])
@@ -1369,10 +1380,12 @@ def recomendar_com_base_em():
         ROWS 1
         """, (id_usuario, ))
     livro_analisado = cur.fetchone()
+    if not livro_analisado:
+        return jsonify({"visivel": False})
 
     # Trazer livros que tenham as mesmas tags que o livro escolhido
     cur.execute("""
-                SELECT 
+                SELECT DISTINCT 
                     a.id_livro, 
                     a.titulo, 
                     a.autor, 
@@ -2693,6 +2706,7 @@ def gerar_relatorio_livros_faltando():
     except Exception as e:
         print(e)
         return jsonify({'error': f"Erro ao gerar o arquivo: {str(e)}"}), 500
+
 
 @app.route('/relatorio/gerar/livros', methods=['GET'])
 def gerar_relatorio_livros():
