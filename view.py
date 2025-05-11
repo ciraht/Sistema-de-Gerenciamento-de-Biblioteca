@@ -12,32 +12,8 @@ from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
 from pixqrcode import PixQrCode
-from flask_socketio import SocketIO, emit, join_room
 
 senha_secreta = app.config['SECRET_KEY']
-socketio = SocketIO(app, cors_allowed_origins="*")
-
-
-def notificar_usuario_ws(id_usuario):
-    socketio.emit("nova_notificacao", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
-
-
-@socketio.on("join_usuario")
-def handle_join_usuario(data):
-    token = data.get("token")
-    if not token:
-        emit("erro", {"msg": "Token não fornecido"})
-        return
-
-    usuario = informar_verificacao(token)
-    if not usuario or 'id_usuario' not in usuario:
-        emit("erro", {"msg": "Token inválido"})
-        return
-
-    id_usuario = usuario['id_usuario']
-    join_room(f"user_{id_usuario}")
-    emit("usuario_conectado", {"msg": f"Conectado à sala user_{id_usuario}"})
-
 
 def configuracoes():
     cur = con.cursor()
@@ -356,8 +332,7 @@ def trazer_configuracoes():
     if verificacao:
         return verificacao
 
-    data = request.get_json()
-    todas = data.get('todas')  # True ou False, ou nada
+    todas = request.args.get('todas', default='false').lower() == 'true'
 
     try:
         cur = con.cursor()
@@ -368,6 +343,8 @@ def trazer_configuracoes():
                     WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
                     """)
             config_mais_recente = cur.fetchone()
+            if not config_mais_recente:
+                return jsonify({'message': 'Nenhuma configuração encontrada'}), 404
             return jsonify({'configuracoes_mais_recentes': config_mais_recente}), 200
 
         cur.execute("SELECT * FROM CONFIGURACOES")
@@ -461,23 +438,6 @@ def trazer_notificacoes():
     notificacoes = [dict(zip(colunas, linha)) for linha in linhas]
 
     return jsonify({"notificacoes": notificacoes})
-
-
-# Nova rota opcional se quiser avisar que o usuário "visualizou"
-@app.route('/notificacoes/visualizadas', methods=["POST"])
-def marcar_visualizadas():
-    verificacao = informar_verificacao(trazer_pl=True)
-    if not verificacao or 'id_usuario' not in verificacao:
-        return jsonify({"erro": "Usuário não autorizado"}), 401
-
-    id_usuario = verificacao['id_usuario']
-    socketio.emit("notificacoes_visualizadas", {"usuario_id": id_usuario}, room=f"user_{id_usuario}")
-    return jsonify({"message": "Notificações marcadas como visualizadas"}), 200
-
-
-def nova_notificacao_para_usuario(id_usuario, notificacao):
-    socketio.emit("nova_notificacao", notificacao, room=str(id_usuario))
-
 
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
@@ -2617,7 +2577,7 @@ def relatorio_multas_pendentes_json():
                     FROM emprestimos e
                     JOIN usuarios u ON e.id_usuario = u.id_usuario
                     JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
-                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+                    WHERE e.data_devolver < CURRENT_DATE
                     AND pago = false
                     ORDER BY m.DATA_ADICIONADO
                     """)
@@ -2644,7 +2604,7 @@ def relatorio_multas_json():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
                     FROM emprestimos e
                     JOIN usuarios u ON e.id_usuario = u.id_usuario
                     JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
@@ -3058,7 +3018,7 @@ def gerar_relatorio_multas_pendentes():
             FROM emprestimos e
             JOIN usuarios u ON e.id_usuario = u.id_usuario
             JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
-            WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
+            WHERE e.data_devolver < CURRENT_DATE
             AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m) and m.pago = false
             ORDER BY m.DATA_ADICIONADO DESC
         """)
@@ -3200,7 +3160,7 @@ def usuarios(pagina):
 
 @app.route('/uploads/<tipo>/<filename>')
 def serve_file(tipo, filename):
-    pasta_permitida = ["usuarios", "livros"]  # Apenas pastas permitidas
+    pasta_permitida = ["usuarios", "livros", "banners"]  # Apenas pastas permitidas
     if tipo not in pasta_permitida:
         return {"error": "Acesso negado."}, 403  # Evita acesso a outras pastas
 
@@ -4902,3 +4862,201 @@ def get_avaliacao_by_user(id_livro):
     return jsonify({
         "valor_total": int(resultado[0])
     }), 200
+
+@app.route("/banners", methods=["POST"])
+def create_banner():
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    data = request.form
+    banner = request.files.get('banner')
+    startDate = data.get("startdate")
+    finishDate = data.get("finishdate")
+    title = data.get("title")
+
+    cur = con.cursor()
+
+    cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner", (title, startDate, finishDate))
+    id_banner = cur.fetchone()
+    id_banner = id_banner[0]
+
+    # Verificações de Imagem
+    banners = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
+
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if banner:
+        valido = False
+        for ext in banners:
+            if banner.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Tipo de arquivo do banner não corresponde com o esperado."
+                }
+            ), 400
+        nome_banner = f"{id_banner}.jpeg"
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "banners")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, nome_banner)
+        banner.save(imagem_path)
+
+    con.commit()
+
+    return jsonify({
+        "message": "Banner criado com sucesso",
+    }),200
+
+@app.route("/banners/users", methods=["GET"])
+def get_banners_in_use():
+    cur = con.cursor()
+    cur.execute("SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE")
+    response = cur.fetchall()
+
+    banners = []
+    for r in response:
+        imagePath = f"{r[0]}.jpeg"
+        banner = {
+            "title": r[1],
+            "startDate": r[2],
+            "finishDate": r[3],
+            "imagePath": imagePath
+        }
+        banners.append(banner)
+
+    return jsonify({"banners": banners}), 200
+
+@app.route("/banners/biblios", methods=["GET"])
+def get_banners_all():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute(
+        "SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS")
+    response = cur.fetchall()
+
+    banners = []
+    for r in response:
+        imagePath = f"{r[0]}.jpeg"
+        banner = {
+            "id_banner": r[0],
+            "title": r[1],
+            "startDate": r[2],
+            "finishDate": r[3],
+            "imagePath": imagePath
+        }
+        banners.append(banner)
+
+    return jsonify({"banners": banners}), 200
+
+
+@app.route("/banners/<int:id>/biblios", methods=["PUT"])
+def put_banners_by_id(id):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.form
+    startDate = data.get("startdate")
+    finishDate = data.get("finishdate")
+    title = data.get("title")
+    banner = request.files.get("banner")
+
+    cur = con.cursor()
+    cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?", (title, startDate, finishDate, id))
+
+    if banner:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "banners")
+        os.makedirs(pasta_destino, exist_ok=True)
+        banner_path = os.path.join(pasta_destino, f"{id}.jpeg")
+        banner.save(banner_path)
+
+    con.commit()
+
+    return jsonify({"message": "Banner editado com sucesso"}), 200
+
+
+@app.route("/banners/<int:id>/biblios", methods=["GET"])
+def get_banners_by_id(id):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute("SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE ID_BANNER = ?", (id,))
+    response = cur.fetchone()
+    imagePath = f"{response[0]}.jpeg"
+
+    banner = {
+        "title": response[1],
+        "startDate": response[2],
+        "finishDate": response[3],
+        "imagePath": imagePath
+    }
+
+    return jsonify({"banner": banner}), 200
+
+@app.route("/banners/<int:id>/biblios", methods=["DELETE"])
+def delete_banner_by_id(id):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    cur.execute("DELETE FROM BANNERS WHERE ID_BANNER = ?", (id,))
+
+    # Excluir a imagem de usuário da aplicação caso houver
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
+    valido = True
+    ext_real = None
+    for ext in imagens:
+        if os.path.exists(rf"{app.config['UPLOAD_FOLDER']}\banners\{str(id) + ext}"):
+            valido = False
+            ext_real = ext
+    if not valido:
+        os.remove(rf"{app.config['UPLOAD_FOLDER']}\banners\{str(id) + ext_real}")
+
+    con.commit()
+
+    return jsonify({"message": "banner removido com sucesso"}), 200
