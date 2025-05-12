@@ -731,6 +731,78 @@ def logar():
         return jsonify({"message": "Usuário não encontrado."}), 404
 
 
+@app.route('/esqueci_senha', methods=["POST"])
+def solicitar_recuperacao():
+    data = request.get_json()
+    email = data.get('email')
+    email = email.lower()
+
+    # Verificações
+    cur = con.cursor()
+    cur.execute("SELECT ID_USUARIO, NOME FROM USUARIOS WHERE EMAIL = ?", (email, ))
+    id_usuario = cur.fetchone()
+    if not id_usuario:
+        return jsonify({"message": "Usuário não encontrado"}), 404
+
+    payload = {
+        "id_usuario": id_usuario[0],
+        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
+    }
+    token = jwt.encode(payload, senha_secreta, algorithm='HS256')
+
+    assunto = f"""
+    Olá {id_usuario[1]}, este é um e-mail de recuperação de senha, 
+    <a href="http://localhost:5173/recuperar-senha?token={token}">Clique aqui</a> para criar uma nova senha.
+    O link de recuperação dura 15 minutos. Caso você não tenha feito essa recuperação, por favor ignore este e-mail.
+    """
+    enviar_email_async(email, "Recuperação de Senha", assunto)
+
+    return jsonify({"message": "E-mail de recuperação enviado."}), 200
+
+
+@app.route('/reset_senha', methods=['POST'])
+def resetar_senha():
+    data = request.get_json()
+    token = data.get('token')
+    senha_nova = data.get('senha_nova')
+    senha_confirm = data.get('senha_confirm')
+
+    cur = con.cursor()
+    try:
+        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
+        id_usuario = payload['id_usuario']
+
+        if not all([senha_nova, senha_confirm]):
+
+            return jsonify({"message": "Todos os campos são obrigatórios."}), 401
+
+        if senha_nova != senha_confirm:
+
+            return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
+
+        if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
+                c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
+                c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
+
+            return jsonify({
+                "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
+
+        senha_nova = generate_password_hash(senha_nova)
+        cur.execute(
+            "UPDATE usuarios SET senha = ? WHERE id_usuario = ?",
+            (senha_nova, id_usuario)
+        )
+
+        return jsonify({"mensagem": "Senha redefinida com sucesso."}), 200
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({"erro": "Token expirado"}), 400
+    except jwt.InvalidTokenError:
+        return jsonify({"erro": "Token inválido"}), 400
+    finally:
+        cur.close()
+
+
 @app.route('/reativar_usuario', methods=["PUT"])
 def reativar_usuario():
     verificacao = informar_verificacao(3)
