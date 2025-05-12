@@ -5245,4 +5245,4 @@ def delete_banner_by_id(id):
 
     con.commit()
 
-    return jsonify({"message": "banner removido com sucesso"}), 200
+    return jsonify({"message": "Banner removido com sucesso"}), 200
