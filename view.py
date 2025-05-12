@@ -244,7 +244,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
                     <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
                 </div>
                 <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-                    © 2025 Read Raccoon. Todos os direitos reservados.<br>
+                    © 2025 {configuracoes()[4]}. Todos os direitos reservados.<br>
                     Este é um e-mail automático, por favor, não responda.
                 </div>
             </div>
@@ -334,8 +334,9 @@ def trazer_configuracoes():
 
     todas = request.args.get('todas', default='false').lower() == 'true'
 
+    cur = con.cursor()
     try:
-        cur = con.cursor()
+
         if not todas:
             cur.execute("""
                     SELECT *
@@ -365,20 +366,26 @@ def criar_verificacoes():
     data = request.get_json()
     dias_emp = data.get('dias_validade_emprestimo')
     dias_emp_b = data.get('dias_validade_buscar')
-    dias_res = data.get('dias_validade_reserva')
-    dias_res_a = data.get('dias_validade_reserva_atender')
+    chave_pix = data.get('chave_pix')
+    raz_social = data.get('razao_social')
+    endereco = data.get('endereco')
+    telefone = data.get('telefone')
+    email = data.get('email')
 
-    if not all([dias_emp, dias_emp_b, dias_res, dias_res_a]):
+    if not all([dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 401
 
     cur = con.cursor()
     cur.execute("""
                 INSERT INTO CONFIGURACOES (DIAS_VALIDADE_EMPRESTIMO, 
                 DIAS_VALIDADE_EMPRESTIMO_BUSCAR, 
-                DIAS_VALIDADE_RESERVA_ATENDER, 
-                DIAS_VALIDADE_RESERVA)
-                VALUES (?, ?, ?, ?)
-                """, (dias_emp, dias_emp_b, dias_res_a, dias_res))
+                CHAVE_PIX, 
+                RAZAO_SOCIAL,
+                ENDERECO,
+                TELEFONE,
+                EMAIL)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email))
     con.commit()
     cur.close()
     return jsonify({"message": "Novas configurações adicionadas com sucesso"}), 200
@@ -2169,8 +2176,10 @@ def devolver_emprestimo(id):
         nome = tangao[1]
         email = tangao[2]
 
+        chave_pix = configuracoes()[3]
+
         # Gerando código de pix para enviar para o e-mail de quem tem multa
-        pix = PixQrCode("Read Raccoon", "tharictalon@gmail.com", "Birigui", str(valor))
+        pix = PixQrCode("Read Raccoon", chave_pix, "Birigui", str(valor))
 
         # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
         if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
