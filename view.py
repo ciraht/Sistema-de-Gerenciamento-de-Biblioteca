@@ -15,6 +15,7 @@ from pixqrcode import PixQrCode
 
 senha_secreta = app.config['SECRET_KEY']
 
+
 def configuracoes():
     cur = con.cursor()
     cur.execute("""
@@ -4491,7 +4492,7 @@ def atender_emprestimo(id_emprestimo):
         FROM emprestimos e
         join itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
         WHERE e.id_emprestimo = ? AND e.status = 'PENDENTE'
-    """, (id_emprestimo,))
+    """, (id_emprestimo ,))
     dados = cur.fetchone()
 
     if not dados:
@@ -4502,14 +4503,44 @@ def atender_emprestimo(id_emprestimo):
     data_devolver = devolucao()
 
     cur.execute("""
+    SELECT U.EMAIL, U.NOME FROM EMPRESTIMOS E 
+    JOIN USUARIOS U ON U.ID_USUARIO = E.ID_USUARIO 
+    WHERE E.ID_EMPRESTIMO = ?
+    """, (id_emprestimo, ))
+
+    dados2 = cur.fetchone()
+    email, nome = dados2
+
+    cur.execute("""
         UPDATE emprestimos 
         SET status = 'ATIVO', data_devolver = ?, data_retirada = CURRENT_TIMESTAMP
         WHERE id_emprestimo = ?
-    """, (data_devolver, id_emprestimo))
+    """, (data_devolver, id_emprestimo, ))
 
     con.commit()
-    cur.close()
 
+    # Enviar um e-mail de empréstimo confirmado e ativo
+
+    cur.execute("""
+    SELECT A.TITULO, A.AUTOR FROM ACERVO A 
+    WHERE A.ID_LIVRO IN (SELECT IE.ID_LIVRO FROM ITENS_EMPRESTIMO IE 
+        WHERE IE.ID_EMPRESTIMO = ?)
+    """, (id_emprestimo, ))
+    livros_emprestados = cur.fetchall()
+
+    corpo = f"""
+    Olá {nome}, você fez um empréstimo que agora está marcado como "ATIVO". <br>
+    Devolva até: {data_devolver} para evitar multas.
+    <ul style="padding-left: 20px; font-size: 16px;">
+    """
+
+    for titulo, autor in livros_emprestados:
+        corpo += f"<li>{titulo}, por {autor}</li>"
+    corpo += "</ul>"
+
+    enviar_email_async(email, "Nota de Empréstimo", corpo)
+
+    cur.close()
     return jsonify({
         "message": "Emprestimo atendido e registrado com sucesso.",
         "data_devolver": data_devolver
