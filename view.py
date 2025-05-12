@@ -2638,66 +2638,133 @@ def get_livros_id(id):
     return jsonify(livro)
 
 
-@app.route('/relatorio/multaspendentes', methods=['GET'])
-def relatorio_multas_pendentes_json():
+@app.route('/relatorio/multaspendentes/<int:pagina>', methods=['GET'])
+def relatorio_multas_pendentes_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+
+    sql = """
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            AND pago = false
+            ORDER BY m.DATA_ADICIONADO
+            """
+
+    sql += f' ROWS {inicial} to {final}'
+
     cur = con.cursor()
-    cur.execute("""
-                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
-                    FROM emprestimos e
-                    JOIN usuarios u ON e.id_usuario = u.id_usuario
-                    JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
-                    WHERE e.data_devolver < CURRENT_DATE
-                    AND pago = false
-                    ORDER BY m.DATA_ADICIONADO
-                    """)
+    cur.execute(sql)
 
     multas_pendentes = cur.fetchall()
-
-    cur.close()
 
     # subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
     # "ano_publicado"]
 
     # livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
 
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            AND pago = false
+            ORDER BY m.DATA_ADICIONADO
+            """)
+    multas = cur.fetchall()
+    cur.close()
+
     return jsonify({
-        "total": len(multas_pendentes),
+        "total": len(multas),
         "multas_pendentes": multas_pendentes
     })
 
 
-@app.route('/relatorio/multas', methods=['GET'])
-def relatorio_multas_json():
+@app.route('/relatorio/multas/<int:pagina>', methods=['GET'])
+def relatorio_multas_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     cur = con.cursor()
-    cur.execute("""
-                    SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
-                    FROM emprestimos e
-                    JOIN usuarios u ON e.id_usuario = u.id_usuario
-                    JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
-                    WHERE e.data_devolver < CURRENT_DATE
-                    ORDER BY m.DATA_ADICIONADO
-                    """)
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+    sql = """
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            ORDER BY m.DATA_ADICIONADO
+            """
+    sql += f' ROWS {inicial} TO {final}'
+    cur.execute(sql)
     multas = cur.fetchall()
 
-    cur.close()
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            ORDER BY m.DATA_ADICIONADO
+            """)
+    multas2 = cur.fetchall()
 
     return jsonify({
+        "total": len(multas2),
         "multas": multas
     })
 
 
-@app.route('/relatorio/livrosfaltando', methods=['GET'])
-def relatorio_livros_faltando_json():
+@app.route('/relatorio/livrosfaltando/<int:pagina>', methods=['GET'])
+def relatorio_livros_faltando_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     cur = con.cursor()
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+    sql = """
+            SELECT 
+                a.id_livro, 
+                a.titulo, 
+                COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
+            INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
+            WHERE e.STATUS IN ('ATIVO')
+            GROUP BY 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,  
+                a.ANO_PUBLICADO
+            ORDER BY a.id_livro
+        """
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql)
+    livros = cur.fetchall()
+
+    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado"]
+
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
     cur.execute("""
             SELECT 
                 a.id_livro, 
@@ -2725,22 +2792,44 @@ def relatorio_livros_faltando_json():
     livros = cur.fetchall()
     cur.close()
 
-    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado"]
-
-    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
-
     return jsonify({
-        "total": len(livros_json),
+        "total": len(livros),
         "livros": livros_json
     })
 
 
-@app.route('/relatorio/livros', methods=['GET'])
-def relatorio_livros_json():
+@app.route('/relatorio/livros/<int:pagina>', methods=['GET'])
+def relatorio_livros_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     cur = con.cursor()
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+    sql = """
+        SELECT 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        ORDER BY a.id_livro
+    """
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql)
+    livros = cur.fetchall()
+
+    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
+                  "ano_publicado"]
+
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
     cur.execute("""
         SELECT 
             a.id_livro, 
@@ -2753,28 +2842,44 @@ def relatorio_livros_json():
             a.idiomas, 
             a.ANO_PUBLICADO
         FROM ACERVO a
-        ORDER BY a.id_livro;
+        ORDER BY a.id_livro
     """)
     livros = cur.fetchall()
     cur.close()
 
-    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
-                  "ano_publicado"]
-
-    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
-
+    print(len(livros))
     return jsonify({
-        "total": len(livros_json),
+        "total": len(livros),
         "livros": livros_json
     })
 
 
-@app.route('/relatorio/usuarios', methods=['GET'])
-def relatorio_usuarios_json():
+@app.route('/relatorio/usuarios/<int:pagina>', methods=['GET'])
+def relatorio_usuarios_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     cur = con.cursor()
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+    sql = """
+        SELECT
+            id_usuario, 
+            nome, 
+            email, 
+            telefone, 
+            endereco
+        FROM USUARIOS
+        ORDER BY id_usuario
+    """
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql)
+    usuarios = cur.fetchall()
+
+    subtitulos = ["id", "nome", "email", "telefone", "endereco"]
+    usuarios_json = [dict(zip(subtitulos, u)) for u in usuarios]
+
     cur.execute("""
         SELECT
             id_usuario, 
@@ -2783,16 +2888,13 @@ def relatorio_usuarios_json():
             telefone, 
             endereco
         FROM USUARIOS
-        ORDER BY id_usuario;
+        ORDER BY id_usuario
     """)
     usuarios = cur.fetchall()
     cur.close()
 
-    subtitulos = ["id", "nome", "email", "telefone", "endereco"]
-    usuarios_json = [dict(zip(subtitulos, u)) for u in usuarios]
-
     return jsonify({
-        "total": len(usuarios_json),
+        "total": len(usuarios),
         "usuarios": usuarios_json
     })
 
@@ -4405,15 +4507,16 @@ def atender_emprestimo(id_emprestimo):
     }), 200
 
 
-@app.route("/multas", methods=["GET"])
-def get_all_multas():
+@app.route("/multas/<int:pagina>", methods=["GET"])
+def get_all_multas(pagina):
     verificacao = informar_verificacao(3)
     if verificacao:
         return verificacao
-
     cur = con.cursor()
-
-    cur.execute("""
+    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
+    final = pagina * 8
+    print(f'ROWS {inicial} to {final}')
+    sql = """
         SELECT 
             M.ID_MULTA,
             M.ID_USUARIO,
@@ -4432,7 +4535,9 @@ def get_all_multas():
         GROUP BY 
             M.ID_MULTA, M.ID_USUARIO, U.NOME, U.EMAIL, 
             M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
-    """)
+    """
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql)
     multas = cur.fetchall()
 
     return jsonify([
