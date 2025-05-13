@@ -12,6 +12,7 @@ from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
 from pixqrcode import PixQrCode
+from random import randint
 import locale
 
 senha_secreta = app.config['SECRET_KEY']
@@ -47,6 +48,25 @@ def agendar_tarefas():
     scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=8, minute=20)
     scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=20)  # Essa função cria os códigos PIX
     scheduler.start()
+
+
+def agendar_expiracao_codigo(id_codigo, minutos):
+    scheduler = BackgroundScheduler()
+    horario_excluir = datetime.datetime.now() + datetime.timedelta(minutes=minutos)
+    scheduler.add_job(func=excluir_codigo_agendado(id_codigo), trigger='date', hour=horario_excluir.hour, minute=horario_excluir.minute)
+    scheduler.start()
+
+
+def excluir_codigo_agendado(id_codigo):
+    cur = con.cursor()
+    try:
+        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_CODIGO = ?", (id_codigo, ))
+        con.commit()
+    except Exception:
+        print("Erro ao excluir código de recuperação")
+        raise
+    finally:
+        cur.close()
 
 
 def generate_token(user_id):
@@ -767,6 +787,7 @@ def logar():
         return jsonify({"message": "Usuário não encontrado."}), 404
 
 
+# 1
 @app.route('/esqueci_senha', methods=["POST"])
 def solicitar_recuperacao():
     data = request.get_json()
@@ -778,42 +799,86 @@ def solicitar_recuperacao():
     cur.execute("SELECT ID_USUARIO, NOME FROM USUARIOS WHERE EMAIL = ?", (email, ))
     id_usuario = cur.fetchone()
     if not id_usuario:
+        cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
-    payload = {
-        "id_usuario": id_usuario[0],
-        'exp': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
-    }
-    token = jwt.encode(payload, senha_secreta, algorithm='HS256')
+    # Verificar se já tem código desse usuário e excluir do banco de dados se houver
+    cur.execute("SELECT 1 FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario, ))
+    if cur.fetchone():
+        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario, ))
+        con.commit()
+
+    codigo = randint(100000, 999999)
+
+    cur.execute("""
+    INSERT INTO CODIGOS_RECUPERACAO (ID_USUARIO, CODIGO) 
+    VALUES (?, ?) RETURNING ID_CODIGO
+    """, (id_usuario[0], codigo, ))
+    id_codigo = cur.fetchone()[0]
+    con.commit()
+    cur.close()
+
+    # Agendar expiração (deleção do banco de dados)
+    agendar_expiracao_codigo(id_codigo, 15)
 
     assunto = f"""
     Olá {id_usuario[1]}, este é um e-mail de recuperação de senha, 
-    <a href="http://localhost:5173/recuperar-senha?token={token}">Clique aqui</a> para criar uma nova senha.
-    O link de recuperação dura 15 minutos. Caso você não tenha feito essa recuperação, por favor ignore este e-mail.
+    Seu código de recuperação é <strong>{codigo}</strong>
+    O código de recuperação dura 15 minutos. Caso você não tenha feito essa recuperação, por favor ignore este e-mail.
     """
     enviar_email_async(email, "Recuperação de Senha", assunto)
 
-    return jsonify({"message": "E-mail de recuperação enviado."}), 200
+    return jsonify({"message": "E-mail de recuperação enviado.",
+                    "id_usuario": id_usuario}), 200
 
 
+# 2
+@app.route('/verificar_codigo', methods=['POST'])
+# Verifica se o código coincide e o adiciona ao payload se sim
+def verificar_recuperacao():
+    data = request.get_json()
+    codigo_recebido = data.get('codigo')
+    id_usuario = data.get('id_usuario')
+
+    cur = con.cursor()
+
+    cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario,))
+    codigo = cur.fetchone()
+    if not codigo:
+        cur.close()
+        return jsonify({"message": "Código inválido."}), 401
+
+    if codigo[0] != codigo_recebido:
+        cur.close()
+        return jsonify({"message": "Código inválido."}), 401
+
+    payload = {
+        "id_usuario": id_usuario,
+        "codigo_recuperacao": codigo_recebido
+    }
+    token = jwt.encode(payload, senha_secreta, algorithm='HS256')
+    return token
+
+
+# 3
 @app.route('/reset_senha', methods=['POST'])
 def resetar_senha():
     data = request.get_json()
-    token = data.get('token')
     senha_nova = data.get('senha_nova')
     senha_confirm = data.get('senha_confirm')
+    id_usuario = data.get('id_usuario')
 
     cur = con.cursor()
     try:
-        payload = jwt.decode(token, senha_secreta, algorithms=['HS256'])
-        id_usuario = payload['id_usuario']
+        payload = informar_verificacao(trazer_pl=True)
+        codigo_recebido = payload['codigo_recuperacao']
 
         if not all([senha_nova, senha_confirm]):
-
+            cur.close()
             return jsonify({"message": "Todos os campos são obrigatórios."}), 401
 
         if senha_nova != senha_confirm:
-
+            cur.close()
             return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
@@ -823,18 +888,28 @@ def resetar_senha():
             return jsonify({
                 "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
+        cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario,))
+        codigo = cur.fetchone()
+        if not codigo:
+            cur.close()
+            return jsonify({"message": "Código inválido."}), 401
+
+        if codigo[0] != codigo_recebido:
+            cur.close()
+            return jsonify({"message": "Código inválido."}), 401
+
         senha_nova = generate_password_hash(senha_nova)
         cur.execute(
             "UPDATE usuarios SET senha = ? WHERE id_usuario = ?",
             (senha_nova, id_usuario)
         )
+        con.commit()
 
         return jsonify({"mensagem": "Senha redefinida com sucesso."}), 200
 
-    except jwt.ExpiredSignatureError:
-        return jsonify({"erro": "Token expirado"}), 400
-    except jwt.InvalidTokenError:
-        return jsonify({"erro": "Token inválido"}), 400
+    except Exception:
+        print('Erro em /reset_senha')
+        raise
     finally:
         cur.close()
 
