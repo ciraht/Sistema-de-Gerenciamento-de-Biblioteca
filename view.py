@@ -53,7 +53,7 @@ def agendar_tarefas():
 def agendar_expiracao_codigo(id_codigo, minutos):
     scheduler = BackgroundScheduler()
     horario_excluir = datetime.datetime.now() + datetime.timedelta(minutes=minutos)
-    scheduler.add_job(func=excluir_codigo_agendado, trigger='date', next_run_time=horario_excluir)
+    scheduler.add_job(func=excluir_codigo_agendado, args=(id_codigo, ), trigger='date', next_run_time=horario_excluir)
     scheduler.start()
 
 
@@ -867,11 +867,11 @@ def resetar_senha():
     data = request.get_json()
     senha_nova = data.get('senha_nova')
     senha_confirm = data.get('senha_confirm')
-    id_usuario = data.get('id_usuario')
 
     cur = con.cursor()
     try:
         payload = informar_verificacao(trazer_pl=True)
+        id_usuario = payload["id_usuario"]
         codigo_recebido = payload['codigo_recuperacao']
 
         if not all([senha_nova, senha_confirm]):
