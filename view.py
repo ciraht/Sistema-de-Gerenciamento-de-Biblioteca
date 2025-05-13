@@ -53,14 +53,14 @@ def agendar_tarefas():
 def agendar_expiracao_codigo(id_codigo, minutos):
     scheduler = BackgroundScheduler()
     horario_excluir = datetime.datetime.now() + datetime.timedelta(minutes=minutos)
-    scheduler.add_job(func=excluir_codigo_agendado, args=(id_codigo, ), trigger='date', next_run_time=horario_excluir)
+    scheduler.add_job(func=excluir_codigo_agendado, args=(id_codigo,), trigger='date', next_run_time=horario_excluir)
     scheduler.start()
 
 
 def excluir_codigo_agendado(id_codigo):
     cur = con.cursor()
     try:
-        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_CODIGO = ?", (id_codigo, ))
+        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_CODIGO = ?", (id_codigo,))
         con.commit()
     except Exception:
         print("Erro ao excluir código de recuperação")
@@ -804,9 +804,9 @@ def solicitar_recuperacao():
         return jsonify({"message": "Usuário não encontrado"}), 404
 
     # Verificar se já tem código desse usuário e excluir do banco de dados se houver
-    cur.execute("SELECT 1 FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0], ))
+    cur.execute("SELECT 1 FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0],))
     if cur.fetchone():
-        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0], ))
+        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0],))
         con.commit()
 
     codigo = randint(100000, 999999)
@@ -814,7 +814,7 @@ def solicitar_recuperacao():
     cur.execute("""
     INSERT INTO CODIGOS_RECUPERACAO (ID_USUARIO, CODIGO) 
     VALUES (?, ?) RETURNING ID_CODIGO
-    """, (id_usuario[0], codigo, ))
+    """, (id_usuario[0], codigo,))
     id_codigo = cur.fetchone()[0]
     con.commit()
     cur.close()
@@ -884,8 +884,7 @@ def resetar_senha():
 
         if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                 c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
-                c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
-
+            c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
             return jsonify({
                 "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
@@ -1474,33 +1473,58 @@ def get_livros_novos():
     return jsonify(livros), 200
 
 
-# @app.route('/livros/recomendados', methods=["GET"])
-# def recomendar():
-#     verificacao = informar_verificacao()
-#     if verificacao:
-#         return
-#     cur = con.cursor()
-#     try:
-#         # Olhar as tags dos livros que o usuário avaliou acima de 3.5
-#         cur.execute("""
-#         SELECT t.ID_TAG, COUNT(*) AS total_aparicoes
-#         FROM ACERVO ac
-#         INNER JOIN AVALIACOES a ON a.ID_LIVRO = ac.ID_LIVRO
-#         LEFT JOIN LIVRO_TAGS lt ON lt.ID_LIVRO = a.ID_LIVRO
-#         LEFT JOIN TAGS t ON t.ID_TAG = lt.ID_TAG
-#         WHERE a.ID_USUARIO = ?
-#           AND a.VALOR_TOTAL >= 3.5
-#         GROUP BY t.ID_TAG
-#         ORDER BY total_aparicoes DESC
-#         """)
-#         tags = cur.fetchall()
-#         if not tags:
-#             cur.execute("")
-#     except Exception:
-#         print('Erro ao recomendar')
-#         raise
-#     finally:
-#         cur.close()
+@app.route('/livros/recomendados', methods=["GET"])
+def recomendar():
+    cur = con.cursor()
+    try:
+        # Pega as tags dos livros bem avaliados
+        cur.execute("""
+            SELECT t.ID_TAG
+            FROM ACERVO ac
+            INNER JOIN AVALIACOES a ON a.ID_LIVRO = ac.ID_LIVRO
+            LEFT JOIN LIVRO_TAGS lt ON lt.ID_LIVRO = a.ID_LIVRO
+            LEFT JOIN TAGS t ON t.ID_TAG = lt.ID_TAG
+            WHERE a.VALOR_TOTAL >= 3.5
+            GROUP BY t.ID_TAG
+        """)
+        tags = cur.fetchall()
+
+        # Extrai apenas os IDs das tags
+        tags2 = [tag[0] for tag in tags]
+
+        if not tags2:
+            return jsonify({"tags": [], "livros": []})
+
+        # Cria os placeholders dinamicamente
+        placeholders = ', '.join(['?'] * len(tags2))
+        query = f"""
+            SELECT DISTINCT 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL, 
+                a.DESCRICAO, 
+                a.idiomas, 
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            JOIN LIVRO_TAGS LT ON LT.ID_LIVRO = A.ID_LIVRO 
+            WHERE LT.ID_TAG IN ({placeholders})
+              AND a.disponivel = true
+            ORDER BY a.id_livro ASC
+        """
+
+        cur.execute(query, tags2)
+        livros = cur.fetchall()
+
+        return jsonify({"tags": tags2, "livros": livros})
+
+    except Exception as e:
+        print('Erro ao recomendar:', e)
+        raise
+    finally:
+        cur.close()
 
 
 @app.route('/livros/porqueleu', methods=["GET"])
@@ -2255,7 +2279,7 @@ def devolver_emprestimo(id):
         cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
                     FROM MULTAS
                     WHERE ID_MULTA = ?
-                """, (tangao[6], ))
+                """, (tangao[6],))
 
         valores = cur.fetchone()
         print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
@@ -4582,7 +4606,7 @@ def atender_reserva(id_reserva):
         VALUES (?, ?)
     """, (id_emprestimo, id_livro))
 
-    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario, ))
+    cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     nome, email = cur.fetchone()
 
     con.commit()
@@ -4591,7 +4615,7 @@ def atender_reserva(id_reserva):
     SELECT A.TITULO, A.AUTOR FROM ITENS_EMPRESTIMO IE 
     INNER JOIN ACERVO A ON A.ID_LIVRO = IE.ID_LIVRO 
     WHERE ID_USUARIO = ?
-    """, (id_usuario, ))
+    """, (id_usuario,))
 
     livros_emprestados = cur.fetchall()
 
@@ -4612,7 +4636,8 @@ def atender_reserva(id_reserva):
     titulo = "Nota de Empréstimo por Atendimento de Reserva"
 
     enviar_email_async(email, titulo, corpo)
-    criar_notificacao(id_usuario, f'Uma reserva sua foi atendida e agora é um empréstimo, devolva até {data_devolver}.', titulo)
+    criar_notificacao(id_usuario, f'Uma reserva sua foi atendida e agora é um empréstimo, devolva até {data_devolver}.',
+                      titulo)
 
     return jsonify({
         "message": "Reserva atendida e empréstimo registrado com sucesso.",
@@ -5244,7 +5269,8 @@ def atender_multa(id_multa):
         con.commit()
         cur.close()
         print(tangao)
-        return jsonify({"message": "Multa paga. Erro ao consultar informações de usuário para envio de informações"}), 500
+        return jsonify(
+            {"message": "Multa paga. Erro ao consultar informações de usuário para envio de informações"}), 500
 
     assunto = f"""
         Olá {nome}, uma multa sua foi marcada como paga, você pagou R$ {valor2}.
