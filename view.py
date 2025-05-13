@@ -53,7 +53,7 @@ def agendar_tarefas():
 def agendar_expiracao_codigo(id_codigo, minutos):
     scheduler = BackgroundScheduler()
     horario_excluir = datetime.datetime.now() + datetime.timedelta(minutes=minutos)
-    scheduler.add_job(func=excluir_codigo_agendado(id_codigo), trigger='date', hour=horario_excluir.hour, minute=horario_excluir.minute)
+    scheduler.add_job(func=excluir_codigo_agendado, trigger='date', next_run_time=horario_excluir)
     scheduler.start()
 
 
@@ -495,6 +495,7 @@ def trazer_notificacoes():
 
     return jsonify({"notificacoes": notificacoes})
 
+
 @app.route('/cadastro', methods=["POST"])
 def cadastrar():
     try:
@@ -796,16 +797,16 @@ def solicitar_recuperacao():
 
     # Verificações
     cur = con.cursor()
-    cur.execute("SELECT ID_USUARIO, NOME FROM USUARIOS WHERE EMAIL = ?", (email, ))
+    cur.execute("SELECT ID_USUARIO, NOME FROM USUARIOS WHERE EMAIL = ?", (email,))
     id_usuario = cur.fetchone()
     if not id_usuario:
         cur.close()
         return jsonify({"message": "Usuário não encontrado"}), 404
 
     # Verificar se já tem código desse usuário e excluir do banco de dados se houver
-    cur.execute("SELECT 1 FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario, ))
+    cur.execute("SELECT 1 FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0], ))
     if cur.fetchone():
-        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario, ))
+        cur.execute("DELETE FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario[0], ))
         con.commit()
 
     codigo = randint(100000, 999999)
@@ -857,7 +858,7 @@ def verificar_recuperacao():
         "codigo_recuperacao": codigo_recebido
     }
     token = jwt.encode(payload, senha_secreta, algorithm='HS256')
-    return token
+    return jsonify({"token": token})
 
 
 # 3
@@ -3499,12 +3500,12 @@ def historico_emprestimos_ativos(pagina):
             FROM ITENS_EMPRESTIMO I
             JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
             JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
-            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL AND E.STATUS = 'ATIVO'
             ORDER BY E.DATA_DEVOLVER ASC
         """, (id_logado,))
         dados = cur.fetchall()
         i, f = calcular_paginacao(pagina)
-        dados = dados[i-1:f]
+        dados = dados[i - 1:f]
         return jsonify([{
             "id_livro": d[0], "titulo": d[1], "autor": d[2],
             "id_emprestimo": d[3], "data_retirada": d[4], "data_devolver": d[5]
@@ -3534,7 +3535,7 @@ def historico_emprestimos_concluidos(pagina):
         """, (id_logado,))
         dados = cur.fetchall()
         i, f = calcular_paginacao(pagina)
-        dados = dados[i-1:f]
+        dados = dados[i - 1:f]
         return jsonify([{
             "id_livro": d[0], "titulo": d[1], "autor": d[2],
             "id_emprestimo": d[3], "data_retirada": d[4],
@@ -3565,7 +3566,7 @@ def historico_reservas_ativas(pagina):
         """, (id_logado,))
         dados = cur.fetchall()
         i, f = calcular_paginacao(pagina)
-        dados = dados[i-1:f]
+        dados = dados[i - 1:f]
         return jsonify([{
             "id_livro": d[0], "titulo": d[1], "autor": d[2],
             "id_reserva": d[3], "data_criacao": d[4],
@@ -3598,7 +3599,7 @@ def historico_multas_pendentes(pagina):
         dados = cur.fetchall()
         multas = [d + (((data_atual - d[6]).days * d[2]) + d[1],) for d in dados]
         i, f = calcular_paginacao(pagina)
-        multas = multas[i-1:f]
+        multas = multas[i - 1:f]
         return jsonify([{
             "id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2],
             "id_emprestimo": m[3], "pago": m[4], "total": m[7]
@@ -3630,7 +3631,7 @@ def historico_multas_concluidas(pagina):
         dados = cur.fetchall()
         multas = [d + (((data_atual - d[6]).days * d[2]) + d[1],) for d in dados]
         i, f = calcular_paginacao(pagina)
-        multas = multas[i-1:f]
+        multas = multas[i - 1:f]
         return jsonify([{
             "id_multa": m[0], "valor_base": m[1], "valor_acrescimo": m[2],
             "id_emprestimo": m[3], "pago": m[4], "total": m[7]
@@ -4632,7 +4633,7 @@ def atender_emprestimo(id_emprestimo):
         FROM emprestimos e
         join itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
         WHERE e.id_emprestimo = ? AND e.status = 'PENDENTE'
-    """, (id_emprestimo ,))
+    """, (id_emprestimo,))
     dados = cur.fetchone()
 
     if not dados:
@@ -4647,7 +4648,7 @@ def atender_emprestimo(id_emprestimo):
     SELECT U.EMAIL, U.NOME FROM EMPRESTIMOS E 
     JOIN USUARIOS U ON U.ID_USUARIO = E.ID_USUARIO 
     WHERE E.ID_EMPRESTIMO = ?
-    """, (id_emprestimo, ))
+    """, (id_emprestimo,))
 
     dados2 = cur.fetchone()
     email, nome = dados2
@@ -4656,7 +4657,7 @@ def atender_emprestimo(id_emprestimo):
         UPDATE emprestimos 
         SET status = 'ATIVO', data_devolver = ?, data_retirada = CURRENT_TIMESTAMP
         WHERE id_emprestimo = ?
-    """, (data_devolver, id_emprestimo, ))
+    """, (data_devolver, id_emprestimo,))
 
     con.commit()
 
@@ -4666,7 +4667,7 @@ def atender_emprestimo(id_emprestimo):
     SELECT A.TITULO, A.AUTOR FROM ACERVO A 
     WHERE A.ID_LIVRO IN (SELECT IE.ID_LIVRO FROM ITENS_EMPRESTIMO IE 
         WHERE IE.ID_EMPRESTIMO = ?)
-    """, (id_emprestimo, ))
+    """, (id_emprestimo,))
     livros_emprestados = cur.fetchall()
 
     data_devolver = formatar_timestamp(data_devolver)
@@ -5284,6 +5285,7 @@ def get_avaliacao_by_user(id_livro):
         "valor_total": int(resultado[0])
     }), 200
 
+
 @app.route("/banners", methods=["POST"])
 def create_banner():
     verificacao = informar_verificacao()
@@ -5296,9 +5298,19 @@ def create_banner():
     finishDate = data.get("finishdate")
     title = data.get("title")
 
+    if startDate > finishDate:
+        return jsonify({"mensagem": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
+
     cur = con.cursor()
 
-    cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner", (title, startDate, finishDate))
+    cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+    data_atual = cur.fetchone()[0]
+
+    if finishDate < data_atual:
+        return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
+
+    cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
+                (title, startDate, finishDate))
     id_banner = cur.fetchone()
     id_banner = id_banner[0]
 
@@ -5345,12 +5357,15 @@ def create_banner():
 
     return jsonify({
         "message": "Banner criado com sucesso",
-    }),200
+    }), 200
+
 
 @app.route("/banners/users", methods=["GET"])
 def get_banners_in_use():
     cur = con.cursor()
-    cur.execute("SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE")
+    cur.execute(
+        "SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= "
+        "CURRENT_DATE")
     response = cur.fetchall()
 
     banners = []
@@ -5365,6 +5380,7 @@ def get_banners_in_use():
         banners.append(banner)
 
     return jsonify({"banners": banners}), 200
+
 
 @app.route("/banners/biblios", methods=["GET"])
 def get_banners_all():
@@ -5405,7 +5421,8 @@ def put_banners_by_id(id):
     banner = request.files.get("banner")
 
     cur = con.cursor()
-    cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?", (title, startDate, finishDate, id))
+    cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?",
+                (title, startDate, finishDate, id))
 
     if banner:
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "banners")
@@ -5437,6 +5454,7 @@ def get_banners_by_id(id):
     }
 
     return jsonify({"banner": banner}), 200
+
 
 @app.route("/banners/<int:id>/biblios", methods=["DELETE"])
 def delete_banner_by_id(id):
