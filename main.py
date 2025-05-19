@@ -21,4 +21,4 @@ from view import *
 
 if __name__ == '__main__':
     agendar_tarefas()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)  # O debug por algum motivo duplica as execuções do APScheduler

@@ -892,11 +892,11 @@ def resetar_senha():
         codigo = cur.fetchone()
         if not codigo:
             cur.close()
-            return jsonify({"message": "Código inválido."}), 401
+            return jsonify({"message": "Código expirado."}), 401
 
         if codigo[0] != codigo_recebido:
             cur.close()
-            return jsonify({"message": "Código inválido."}), 401
+            return jsonify({"message": "Código expirado."}), 401
 
         senha_nova = generate_password_hash(senha_nova)
         cur.execute(
@@ -2861,7 +2861,7 @@ def relatorio_multas_json(pagina):
     })
 
 
-@app.route('/relatorio/livrosfaltando/<int:pagina>', methods=['GET'])
+@app.route('/relatorio/livros/faltando/<int:pagina>', methods=['GET'])
 def relatorio_livros_faltando_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
@@ -2871,36 +2871,40 @@ def relatorio_livros_faltando_json(pagina):
     final = pagina * 8
     print(f'ROWS {inicial} to {final}')
     sql = """
-            SELECT 
-                a.id_livro, 
-                a.titulo, 
-                COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
-                a.autor, 
-                a.CATEGORIA, 
-                a.ISBN, 
-                a.QTD_DISPONIVEL,
-                a.ANO_PUBLICADO
-            FROM ACERVO a
-            INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
-            INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
-            WHERE e.STATUS IN ('ATIVO')
-            GROUP BY 
-                a.id_livro, 
-                a.titulo, 
-                a.autor, 
-                a.CATEGORIA, 
-                a.ISBN, 
-                a.QTD_DISPONIVEL,  
-                a.ANO_PUBLICADO
-            ORDER BY a.id_livro
+    SELECT 
+        a.id_livro, 
+        a.titulo, 
+        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,
+        a.ano_publicado,
+        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ')', ', ') AS usuarios
+    FROM acervo a
+    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
+    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
+    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
+    WHERE e.status = 'ATIVO'
+    GROUP BY 
+        a.id_livro, 
+        a.titulo, 
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,  
+        a.ano_publicado
+    ORDER BY a.id_livro
+
         """
     sql += f' ROWS {inicial} to {final}'
     cur.execute(sql)
     livros = cur.fetchall()
 
-    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado"]
+    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado", "usuarios"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+    print(livros_json)
 
     cur.execute("""
             SELECT 
@@ -3043,32 +3047,34 @@ def gerar_relatorio_livros_faltando():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-        SELECT 
-            a.id_livro, 
-            a.titulo, 
-            COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
-            a.autor, 
-            a.CATEGORIA, 
-            a.ISBN, 
-            a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
-            a.IDIOMAS, 
-            a.ANO_PUBLICADO
-        FROM ACERVO a
-        INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
-        INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
-        WHERE e.STATUS in ('ATIVO')
-        GROUP BY 
-            a.id_livro, 
-            a.titulo, 
-            a.autor, 
-            a.CATEGORIA, 
-            a.ISBN, 
-            a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
-            a.IDIOMAS, 
-            a.ANO_PUBLICADO
-        ORDER BY a.id_livro
+    SELECT 
+        a.id_livro, 
+        a.titulo, 
+        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,
+        a.DESCRICAO,
+        a.IDIOMAS,
+        a.ano_publicado,
+        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ')', ', ') AS usuarios
+    FROM acervo a
+    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
+    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
+    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
+    WHERE e.status = 'ATIVO'
+    GROUP BY 
+        a.id_livro, 
+        a.titulo, 
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,
+        a.DESCRICAO,
+        a.IDIOMAS,
+        a.ano_publicado
+    ORDER BY a.id_livro
     """)
     livros = cur.fetchall()
     cur.close()
@@ -3088,7 +3094,7 @@ def gerar_relatorio_livros_faltando():
     pdf.set_font("Arial", size=12)
 
     subtitulos = ["ID", "Titulo", "Quantidade Emprestada", "Autor", "Categoria", "ISBN", "Quantidade Total",
-                  "Descrição", "Idiomas", "Ano Publicado"]
+                  "Descrição", "Idiomas", "Ano Publicado", "Usuários"]
 
     print(len(livros))
 
@@ -4621,7 +4627,7 @@ def atender_reserva(id_reserva):
 
     cur.close()
 
-    data_devolver = formatar_timestamp(data_devolver)
+    data_devolver = formatar_timestamp(str(data_devolver))
     corpo = f"""
         Olá {nome}, Você possui um empréstimo ativo feito a partir do atentimento de uma reserva. <br>
         Devolva até: {data_devolver} para evitar multas. <br>
@@ -4695,7 +4701,7 @@ def atender_emprestimo(id_emprestimo):
     """, (id_emprestimo,))
     livros_emprestados = cur.fetchall()
 
-    data_devolver = formatar_timestamp(data_devolver)
+    data_devolver = formatar_timestamp(str(data_devolver))
     corpo = f"""
     Olá {nome}, você fez um empréstimo que agora está marcado como "ATIVO". <br>
     Devolva até: {data_devolver} para evitar multas. <br>
