@@ -862,7 +862,7 @@ def verificar_recuperacao():
 
 
 # 3
-@app.route('/reset_senha', methods=['POST'])
+@app.route('/reset_senha', methods=['PUT'])
 def resetar_senha():
     data = request.get_json()
     senha_nova = data.get('senha_nova')
@@ -1676,35 +1676,37 @@ def adicionar_na_minha_lista(id_livro):
     id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
 
     cur = con.cursor()
+    try:
 
-    # Verificações
-    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
-    if not cur.fetchone():
+        # Verificações
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
+        if not cur.fetchone():
+            return jsonify({"message": "ID de livro não encontrado."}), 404
+
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro,))
+        if cur.fetchone():
+            return jsonify({"message": "Este livro não está disponível."}), 401
+
+        cur.execute("""
+            SELECT 1 FROM ACERVO A 
+            INNER JOIN LISTAGEM L ON L.ID_LIVRO = A.ID_LIVRO 
+            WHERE A.ID_LIVRO = ? AND L.ID_USUARIO = ?
+            """, (id_livro, id_usuario))
+        if cur.fetchone():
+            return jsonify({"message": "Este livro já está em sua lista."}), 401
+
+        # Adicionando na tabela de listagem
+        cur.execute("INSERT INTO LISTAGEM (ID_USUARIO, ID_LIVRO) VALUES(?, ?)", (id_usuario, id_livro,))
+        con.commit()
+        return jsonify({"message": "Livro adicionado em Minha Lista."}), 200
+    except Exception:
+        print("Erro ao adicionar livro em minhalista")
+        raise
+    finally:
         cur.close()
-        return jsonify({"message": "ID de livro não encontrado."}), 404
-
-    cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro,))
-    if cur.fetchone():
-        cur.close()
-        return jsonify({"message": "Este livro não está disponível."}), 401
-
-    cur.execute("""
-        SELECT 1 FROM ACERVO A 
-        INNER JOIN LISTAGEM L ON L.ID_LIVRO = A.ID_LIVRO 
-        WHERE A.ID_LIVRO = ? AND L.ID_USUARIO = ?
-        """, (id_livro, id_usuario))
-    if cur.fetchone():
-        cur.close()
-        return jsonify({"message": "Este livro já está em sua lista."}), 401
-
-    # Adicionando na tabela de listagem
-    cur.execute("INSERT INTO LISTAGEM (ID_USUARIO, ID_LIVRO) VALUES(?, ?)", (id_usuario, id_livro,))
-    con.commit()
-    cur.close()
-    return jsonify({"message": "Livro adicionado em Minha Lista."}), 200
 
 
-@app.route('/livros/minhalista/excluir/<int:id_livro>', methods=["DELETE"])
+@app.route("/livros/minhalista/excluir/<int:id_livro>", methods=["DELETE"])
 def excluir_da_minha_lista(id_livro):
     verificacao = informar_verificacao()
     if verificacao:
@@ -1713,18 +1715,63 @@ def excluir_da_minha_lista(id_livro):
     id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
 
     cur = con.cursor()
+    try:
 
-    # Verificações
-    cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ?", (id_livro,))
-    if not cur.fetchone():
+        # Verificações
+        cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id_livro, id_usuario, ))
+        if not cur.fetchone():
+            cur.close()
+            return jsonify({"message": "ID de livro não encontrado."}), 404
+
+        # Excluindo da tabela de listagem
+        cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro,))
+        con.commit()
+        return jsonify({"message": "Livro excluído de Minha Lista."}), 200
+    except Exception:
+        print("Erro ao excluir livro de minha lista")
+        raise
+    finally:
         cur.close()
-        return jsonify({"message": "ID de livro não encontrado."}), 404
 
-    # Excluindo da tabela de listagem
-    cur.execute("DELETE FROM LISTAGEM WHERE ID_USUARIO = ? AND ID_LIVRO = ?", (id_usuario, id_livro,))
-    con.commit()
-    cur.close()
-    return jsonify({"message": "Livro excluído de Minha Lista."}), 200
+
+@app.route("/livros/minhalista/<int:id_livro>/verificar", methods=["GET"])
+def lista_by_id(id_livro):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
+
+    cur = con.cursor()
+    try:
+
+        # Verificações
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id_livro,))
+        if not cur.fetchone():
+            cur.close()
+            return jsonify({"message": "ID de livro não encontrado."}), 404
+
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ? AND DISPONIVEL = FALSE", (id_livro,))
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"message": "Este livro não está disponível."}), 401
+
+        cur.execute("""
+            SELECT 1 FROM ACERVO A 
+            FULL JOIN LISTAGEM L ON L.ID_LIVRO = A.ID_LIVRO 
+            WHERE A.ID_LIVRO = ? AND L.ID_USUARIO = ?
+            """, (id_livro, id_usuario))
+        if cur.fetchone():
+            cur.close()
+            return jsonify({"message": "Este livro já está em sua lista.", "inList": True}), 200
+        else:
+            cur.close()
+            return jsonify({"message": "Este livro não está em sua lista.", "inList": False}), 200
+    except Exception:
+        print("Erro ao verificar livro")
+        raise
+    finally:
+        cur.close()
 
 
 @app.route('/adicionar_livros', methods=["POST"])
