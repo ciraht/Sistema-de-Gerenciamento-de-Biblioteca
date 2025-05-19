@@ -46,7 +46,7 @@ def calcular_paginacao(pagina):
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=8, minute=20)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=20)  # Essa função cria os códigos PIX
+    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=19)  # Essa função cria os códigos PIX
     scheduler.start()
 
 
@@ -327,8 +327,8 @@ def enviar_emails_teste():
     cur.execute(
         f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
     try:
-        avisar_para_evitar_multas()
         multar_quem_precisa()
+        avisar_para_evitar_multas()
         """
         usuario = cur.fetchone()
         cur.close()
@@ -4529,7 +4529,9 @@ def avisar_para_evitar_multas():
             INNER JOIN USUARIOS u ON e.ID_USUARIO = u.ID_USUARIO
             WHERE 
                 STATUS = 'ATIVO'
-                AND CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) <= 3
+            AND CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 3
+                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 2
+                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 1
         """)
 
         dias_que_faltam = cur.fetchall()
@@ -4582,9 +4584,9 @@ def multar_quem_precisa():
         cur.execute("""
                     SELECT u.id_usuario, e.id_emprestimo
                     FROM emprestimos e
-                    JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
                     WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
-                    AND u.id_usuario NOT IN (SELECT m.ID_USUARIO FROM MULTAS m WHERE m.PAGO = FALSE)
+                    AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
                 """)
 
         tangoes = cur.fetchall()
