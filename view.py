@@ -327,40 +327,113 @@ def enviar_emails_teste():
     cur.execute(
         f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
     try:
-        multar_quem_precisa()
-        avisar_para_evitar_multas()
-        """
-        usuario = cur.fetchone()
-        cur.close()
+        cur.execute("""
+    SELECT 
+        a.titulo,
+        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,
+        a.IDIOMAS,
+        a.ano_publicado,
+        LIST(u.nome || ' | Email: ' || u.email || ' | Telefone: ' || u.telefone || ' \n ') AS usuarios
+    FROM acervo a
+    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
+    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
+    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
+    WHERE e.status = 'ATIVO'
+    GROUP BY 
+        a.id_livro, 
+        a.titulo, 
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,
+        a.IDIOMAS,
+        a.ano_publicado
+    ORDER BY a.id_livro
+    """)
+        livros = cur.fetchall()
+        data = [
+            ("Livro", "QTD Emprestada", "Autor",
+             "Categoria", "ISBN", "QTD Total",
+             "Idiomas", "Publicação", "Portadores")
+        ]
+        larguras = [190.0015555555555*0.12, 190.0015555555555*0.16, 190.0015555555555*0.12,
+                    190.0015555555555*0.11, 190.0015555555555*0.2, 190.0015555555555*0.1,
+                    190.0015555555555*0.08, 190.0015555555555*0.11, 190.0015555555555*0.5]
+        for livro in livros:
+            data.append(livro)
+        contador_livros = len(livros)
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+        pdf.set_font("Arial", style='B', size=16)
+        pdf.cell(200, 10, "Relatorio de Livros Faltando", ln=True, align='C')
+        pdf.set_font("Arial", style='B', size=13)
+        pdf.cell(200, 10, f"Total de livros Emprestados: {contador_livros}", ln=True, align='C')
+        pdf.ln(5)  # Espaço entre o título e a linha
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
+        pdf.ln(5)  # Espaço após a linha
 
-        # COISAS DE QR CODE DE PIX
-        nome = usuario[1]
-        email = usuario[2]
-        valor = 251  # Isso é R$ 2,51
-        pix = PixQrCode("Teste", "tharictalon@gmail.com", "Birigui", "100")
-        print(f"Esse pix é válido: {pix.is_valid()}")
+        pdf.set_font("Arial", size=10)
 
-        # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
-        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
-            if not os.path.exists(app.config['UPLOAD_FOLDER']):
-                os.makedirs(app.config['UPLOAD_FOLDER'])
-            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
-            os.makedirs(pasta_destino, exist_ok=True)
+        line_height = pdf.font_size * 1.75
+        # col_width = pdf.epw / 10
 
-        # Verificando se já tem uma imagem para esse valor
-        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
-            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
-            print("Novo quick response code de pix criado")
+        lh_list = []  # list with proper line_height for each row
+        use_default_height = 0  # flag
 
-        print(f"Nome: {nome}, email: {email}")
-        assunto = 'Olá, ' + nome
-        corpo = f'Olá {nome}, Este é um e-mail de exemplo enviado via Flask. Aqui está um QR Code para pagamento Pix nos anexos'
-        enviar_email_async(email, assunto, corpo, f"{valor}.png")
-        """
+        # create lh_list of line_heights which size is equal to num rows of data
+        for row in data:
+            for dado in row:
+                dado = str(dado)
+                word_list = dado.split()
+                number_of_words = len(word_list)  # how many words
+                if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                    use_default_height = 1
+                    new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
+            if not use_default_height:
+                lh_list.append(line_height)
+            else:
+                lh_list.append(new_line_height)
+            use_default_height = 0
+
+        # create your fpdf table ..passing also max_line_height!
+        for j, row in enumerate(data):
+            i = 0
+            portadores = []
+            for dado in row:
+                if i != 8:
+                    print("A")
+                    dado = str(dado)
+                    dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+                    line_height = lh_list[j]  # choose right height for current row
+                    pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
+                                   max_line_height=pdf.font_size)
+                else:
+                    portadores.append(dado)
+                i += 1
+
+            pdf.ln(line_height)
+            pdf.set_font("Arial", style='B', size=13)
+            pdf.cell(200, 10, f"Empréstimos:", ln=True, align='C')
+            pdf.set_font("Arial", size=10)
+
+            dado = portadores[0]
+            print(dado)
+            dado = str(dado)
+            dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.cell(larguras[8], line_height, dado, border=1, align='C', ln=0)
+
+        pdf.output('table_with_cells.pdf')
 
         return jsonify({"message": "E-mail teste enviado com sucesso!"})
     except Exception as e:
-        return jsonify({"error": e})
+        print("Erro na rota de testes")
+        raise
     finally:
         cur.close()
 
@@ -3094,75 +3167,95 @@ def gerar_relatorio_livros_faltando():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-    SELECT 
-        a.id_livro, 
+    SELECT  
         a.titulo, 
         COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
         a.autor, 
         a.categoria, 
         a.isbn, 
         a.qtd_disponivel,
-        a.DESCRICAO,
         a.IDIOMAS,
         a.ano_publicado,
-        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ')', ', ') AS usuarios
+        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ') (Retirado em: ' || e.DATA_RETIRADA || ', Devolver em: ' || e.DATA_DEVOLVER || ')') AS usuarios
     FROM acervo a
     INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
     INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
     INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
     WHERE e.status = 'ATIVO'
-    GROUP BY 
-        a.id_livro, 
-        a.titulo, 
+    GROUP BY  
+        a.titulo,
         a.autor, 
         a.categoria, 
         a.isbn, 
         a.qtd_disponivel,
-        a.DESCRICAO,
         a.IDIOMAS,
         a.ano_publicado
-    ORDER BY a.id_livro
+    ORDER BY COUNT(ie.ID_LIVRO) DESC
     """)
     livros = cur.fetchall()
     cur.close()
 
-    contador_livros = len(livros)  # Definir o contador de livros antes do loop
-
+    data = [
+        ("Livro", "QTD Emprestada", "Autor",
+         "Categoria", "ISBN", "QTD Total",
+         "Idiomas", "Publicação", "Portadores")
+    ]
+    mm_pdf = 190.0015555555555
+    multiplicador = 0.11111111111111111111111111111111
+    larguras = [mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
+                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
+                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador + 0.1),]
+    for livro in livros:
+        data.append(livro)
+    contador_livros = len(livros)
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Livros", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de livros emprestados: {contador_livros}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
 
-    subtitulos = ["ID", "Titulo", "Quantidade Emprestada", "Autor", "Categoria", "ISBN", "Quantidade Total",
-                  "Descrição", "Idiomas", "Ano Publicado", "Usuários"]
+    pdf.set_font("Arial", size=10)
 
-    print(len(livros))
+    line_height = pdf.font_size * 2
+    # col_width = pdf.epw / 10
 
-    for livro in livros:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+    lh_list = []  # list with proper line_height for each row
+    use_default_height = 0  # flag
 
-            texto = livro[i]
-            texto = str(texto)
+    # create lh_list of line_heights which size is equal to num rows of data
+    for row in data:
+        for dado in row:
+            dado = str(dado)
+            word_list = dado.split()
+            number_of_words = len(word_list)  # how many words
+            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                use_default_height = 1
+                new_line_height = pdf.font_size * (number_of_words / 1.15)  # new height change according to data
+        if not use_default_height:
+            lh_list.append(line_height)
+        else:
+            lh_list.append(new_line_height)
+        use_default_height = 0
 
-            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
-            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+    # create your fpdf table ..passing also max_line_height!
+    for j, row in enumerate(data):
+        i = 0
+        for dado in row:
+            if i != 0:
+                dado = str(dado)
+                dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+                line_height = lh_list[j]  # choose right height for current row
+                pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
+                               max_line_height=pdf.font_size)
+            i += 1
+        pdf.ln(line_height)
 
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{texto}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
-
-    pdf_path = "relatorio_livros.pdf"
+    pdf_path = "relatorio_livros_faltando.pdf"
     pdf.output(pdf_path)
 
     try:
@@ -3179,25 +3272,23 @@ def gerar_relatorio_livros():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-        SELECT 
-            a.id_livro, 
+        SELECT  
+            a.titulo,
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL,  
+            a.IDIOMAS, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        WHERE a.DISPONIVEL = TRUE
+        GROUP BY
+            a.id_livro,
             a.titulo,
             a.autor, 
             a.CATEGORIA, 
             a.ISBN, 
             a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
-            a.IDIOMAS, 
-            a.ANO_PUBLICADO
-        FROM ACERVO a
-        GROUP BY 
-            a.id_livro, 
-            a.titulo, 
-            a.autor, 
-            a.CATEGORIA, 
-            a.ISBN, 
-            a.QTD_DISPONIVEL, 
-            a.DESCRICAO, 
             a.IDIOMAS, 
             a.ANO_PUBLICADO
         ORDER BY a.id_livro
@@ -3205,41 +3296,64 @@ def gerar_relatorio_livros():
     livros = cur.fetchall()
     cur.close()
 
-    contador_livros = len(livros)  # Definir o contador de livros antes do loop
-
+    data = [
+        ("Livro", "Autor", "Categoria",
+         "ISBN", "QTD Total", "Idiomas",
+         "Publicação")
+    ]
+    mm_pdf = 190.0015555555555
+    multiplicador = 0.14285714285714285714285714285714
+    larguras = [mm_pdf * (multiplicador-0.03), mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * (multiplicador+0.05), mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * (multiplicador-0.02)]
+    for livro in livros:
+        data.append(livro)
+    contador_livros = len(livros)
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de livros", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Livros", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de livros cadastrados: {contador_livros}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de livros emprestados: {contador_livros}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
 
-    subtitulos = ["ID", "Titulo", "Autor", "Categoria", "ISBN", "Quantidade Total",
-                  "Descrição", "Idiomas", "Ano Publicado"]
+    pdf.set_font("Arial", size=10)
 
-    print(len(livros))
+    line_height = pdf.font_size * 1.75
+    # col_width = pdf.epw / 10
 
-    for livro in livros:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+    lh_list = []  # list with proper line_height for each row
+    use_default_height = 0  # flag
 
-            texto = livro[i]
-            texto = str(texto)
+    # create lh_list of line_heights which size is equal to num rows of data
+    for row in data:
+        for dado in row:
+            dado = str(dado)
+            word_list = dado.split()
+            number_of_words = len(word_list)  # how many words
+            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                use_default_height = 1
+                new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
+        if not use_default_height:
+            lh_list.append(line_height)
+        else:
+            lh_list.append(new_line_height)
+        use_default_height = 0
 
-            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
-            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
-
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{texto}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
+    # create your fpdf table ..passing also max_line_height!
+    for j, row in enumerate(data):
+        i = 0
+        for dado in row:
+            dado = str(dado)
+            dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
+                           max_line_height=pdf.font_size)
+            i += 1
+        pdf.ln(line_height)
 
     pdf_path = "relatorio_livros.pdf"
     pdf.output(pdf_path)
@@ -3265,42 +3379,71 @@ def gerar_relatorio_usuarios():
             telefone, 
             endereco
         FROM USUARIOS
-        ORDER BY id_usuario;
+        ORDER BY id_usuario DESC;
     """)
     usuarios = cur.fetchall()
     cur.close()
     contador_usuarios = len(usuarios)
 
+    data = [
+        ("id_usuario", "Nome", "Email",
+         "Telefone", "Endereço")
+    ]
+    mm_pdf = 190.0015555555555
+    multiplicador = 0.25
+    larguras = [mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * multiplicador, mm_pdf * multiplicador, 0]
+    for livro in usuarios:
+        data.append(livro)
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de usuários", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Usuários", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de usuários cadastrados: {contador_usuarios}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de Usuários Cadastrados: {contador_usuarios}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
 
-    subtitulos = ["ID", "Nome", "E-mail", "Telefone", "Endereço"]
+    pdf.set_font("Arial", size=10)
 
-    for usuario in usuarios:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 5, f"{subtitulos[i]}: ")
+    line_height = pdf.font_size * 1.75
+    # col_width = pdf.epw / 10
 
-            texto = usuario[i]
-            texto = str(texto)
+    lh_list = []  # list with proper line_height for each row
+    use_default_height = 0  # flag
 
-            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
-            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+    # create lh_list of line_heights which size is equal to num rows of data
+    for row in data:
+        for dado in row:
+            dado = str(dado)
+            word_list = dado.split()
+            number_of_words = len(word_list)  # how many words
+            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                use_default_height = 1
+                new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
+        if not use_default_height:
+            lh_list.append(line_height)
+        else:
+            lh_list.append(new_line_height)
+        use_default_height = 0
 
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(50, 5, f"{texto}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
+    # create your fpdf table ..passing also max_line_height!
+    for j, row in enumerate(data):
+        i = 0
+        for dado in row:
+            print(f"Dado: {dado}, i: {i}")
+            if i == 0:
+                i += 1
+                continue
+            dado = str(dado)
+            dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
+                           max_line_height=pdf.font_size)
+            i += 1
+        pdf.ln(line_height)
 
     pdf_path = "relatorio_usuarios.pdf"
     pdf.output(pdf_path)
@@ -3317,49 +3460,79 @@ def gerar_relatorio_multas():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-            SELECT u.email, u.telefone, u.nome, e.data_devolver
+            SELECT u.nome, u.email, u.telefone, u.endereco, e.data_devolver, m.pago
             FROM emprestimos e
             JOIN usuarios u ON e.id_usuario = u.id_usuario
             JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
-            WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_DATE
-            AND u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
+            WHERE u.id_usuario IN (SELECT m.ID_USUARIO FROM MULTAS m)
             ORDER BY m.DATA_ADICIONADO DESC
         """)
     tangoes = cur.fetchall()
     cur.close()
+    print(tangoes)
 
-    total_multados = len(tangoes)  # Definir o contador de livros antes do loop
-
+    data = [
+        ("Nome", "Email", "Telefone",
+         "Endereço", "Data de Devolver", "Paga")
+    ]
+    mm_pdf = 190.0015555555555
+    multiplicador = 0.16666666666666666666666666666667
+    larguras = [mm_pdf * multiplicador, mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * multiplicador, mm_pdf * multiplicador, mm_pdf * multiplicador]
+    contador_usuarios = len(tangoes)
+    for livro in tangoes:
+        data.append(livro)
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
     pdf.cell(200, 10, "Relatorio de Multas", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de Multas: {contador_usuarios}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
 
-    subtitulos = ["Email", "Telefone", "Nome", "Data que Era Para Devolver"]
+    pdf.set_font("Arial", size=10)
 
-    for multado in tangoes:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
+    line_height = pdf.font_size * 1.75
+    # col_width = pdf.epw / 10
 
-            texto = multado[i]
-            texto = str(texto)
+    lh_list = []  # list with proper line_height for each row
+    use_default_height = 0  # flag
 
-            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
-            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+    # create lh_list of line_heights which size is equal to num rows of data
+    for row in data:
+        for dado in row:
+            dado = str(dado)
+            word_list = dado.split()
+            number_of_words = len(word_list)  # how many words
+            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                use_default_height = 1
+                new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
+        if not use_default_height:
+            lh_list.append(line_height)
+        else:
+            lh_list.append(new_line_height)
+        use_default_height = 0
 
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(100, 5, f"{texto}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
+    # create your fpdf table ..passing also max_line_height!
+    for j, row in enumerate(data):
+        i = 0
+        for dado in row:
+            print(f"Dado: {dado}, i: {i}")
+            dado2 = dado
+            if dado == True:
+                dado2 = "Sim"
+            elif dado == False:
+                dado2 = "Não"
+            dado2 = str(dado2)
+            dado2 = dado2.encode('latin-1', 'ignore').decode('latin-1')
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.multi_cell(larguras[i], line_height, dado2, border=1, align='C', ln=3,
+                           max_line_height=pdf.font_size)
+            i += 1
+        pdf.ln(line_height)
 
     pdf_path = "relatorio_multas.pdf"
     pdf.output(pdf_path)
@@ -3378,7 +3551,7 @@ def gerar_relatorio_multas_pendentes():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-            SELECT u.email, u.telefone, u.nome, e.data_devolver
+            SELECT u.nome, u.email, u.telefone, u.endereco, e.data_devolver, m.pago
             FROM emprestimos e
             JOIN usuarios u ON e.id_usuario = u.id_usuario
             JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
@@ -3389,38 +3562,68 @@ def gerar_relatorio_multas_pendentes():
     tangoes = cur.fetchall()
     cur.close()
 
-    total_multados = len(tangoes)  # Definir o contador de livros antes do loop
-
+    data = [
+        ("Nome", "Email", "Telefone",
+         "Endereço", "Data de Devolver", "Paga")
+    ]
+    mm_pdf = 190.0015555555555
+    multiplicador = 0.16666666666666666666666666666667
+    larguras = [mm_pdf * multiplicador, mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * multiplicador, mm_pdf * multiplicador, mm_pdf * multiplicador]
+    contador_usuarios = len(tangoes)
+    for livro in tangoes:
+        data.append(livro)
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
     pdf.cell(200, 10, "Relatorio de Multas Pendentes", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de multas: {total_multados}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de Multas Pendentes: {contador_usuarios}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
-    pdf.set_font("Arial", size=12)
 
-    subtitulos = ["Email", "Telefone", "Nome", "Data que Era Para Devolver"]
+    pdf.set_font("Arial", size=10)
 
-    for multado in tangoes:
-        for i in range(len(subtitulos)):
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(100, 5, f"{subtitulos[i]}: ")
+    line_height = pdf.font_size * 1.75
+    # col_width = pdf.epw / 10
 
-            texto = multado[i]
-            texto = str(texto)
+    lh_list = []  # list with proper line_height for each row
+    use_default_height = 0  # flag
 
-            # Codificar em 'latin-1', ignorando caracteres que não podem ser codificados
-            texto = texto.encode('latin-1', 'ignore').decode('latin-1')
+    # create lh_list of line_heights which size is equal to num rows of data
+    for row in data:
+        for dado in row:
+            dado = str(dado)
+            word_list = dado.split()
+            number_of_words = len(word_list)  # how many words
+            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+                use_default_height = 1
+                new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
+        if not use_default_height:
+            lh_list.append(line_height)
+        else:
+            lh_list.append(new_line_height)
+        use_default_height = 0
 
-            pdf.set_font("Arial", '', 12)
-            pdf.multi_cell(100, 5, f"{texto}")
-            pdf.ln(1)
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-        pdf.ln(7)
+    # create your fpdf table ..passing also max_line_height!
+    for j, row in enumerate(data):
+        i = 0
+        for dado in row:
+            print(f"Dado: {dado}, i: {i}")
+            dado2 = dado
+            if dado == True:
+                dado2 = "Sim"
+            elif dado == False:
+                dado2 = "Não"
+            dado2 = str(dado2)
+            dado2 = dado2.encode('latin-1', 'ignore').decode('latin-1')
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.multi_cell(larguras[i], line_height, dado2, border=1, align='C', ln=3,
+                           max_line_height=pdf.font_size)
+            i += 1
+        pdf.ln(line_height)
 
     pdf_path = "relatorio_multas_pendentes.pdf"
     pdf.output(pdf_path)
