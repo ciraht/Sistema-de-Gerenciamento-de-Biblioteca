@@ -308,7 +308,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
 
-def formatar_timestamp(timestamp):
+def formatar_timestamp(timestamp, horario=None):
     # Definir o locale para português (Brasil)
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 
@@ -316,6 +316,8 @@ def formatar_timestamp(timestamp):
     data = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
 
     # Formatar a data para o formato por extenso
+    if horario:
+        return data.strftime("%d de %B de %Y em %H:%M:%S")
     return data.strftime("%d de %B de %Y")
 
 
@@ -3213,7 +3215,7 @@ def gerar_relatorio_livros_faltando():
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "Relatorio de Livros", ln=True, align='C')
+    pdf.cell(200, 10, "Relatorio de Livros Emprestados", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
     pdf.cell(200, 10, f"Total de livros emprestados: {contador_livros}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
@@ -3316,7 +3318,7 @@ def gerar_relatorio_livros():
     pdf.set_font("Arial", style='B', size=16)
     pdf.cell(200, 10, "Relatorio de Livros", ln=True, align='C')
     pdf.set_font("Arial", style='B', size=13)
-    pdf.cell(200, 10, f"Total de livros emprestados: {contador_livros}", ln=True, align='C')
+    pdf.cell(200, 10, f"Total de livros: {contador_livros}", ln=True, align='C')
     pdf.ln(5)  # Espaço entre o título e a linha
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
     pdf.ln(5)  # Espaço após a linha
