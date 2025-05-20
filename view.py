@@ -3000,7 +3000,8 @@ def relatorio_livros_faltando_json(pagina):
         a.isbn, 
         a.qtd_disponivel,
         a.ano_publicado,
-        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ')', ', ') AS usuarios
+        LIST(u.nome) AS usuarios,
+        LIST(u.ID_USUARIO) AS id_usuarios
     FROM acervo a
     INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
     INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
@@ -3021,7 +3022,7 @@ def relatorio_livros_faltando_json(pagina):
     cur.execute(sql)
     livros = cur.fetchall()
 
-    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado", "usuarios"]
+    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado", "usuarios", "id_usuarios"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
     print(livros_json)
@@ -5582,19 +5583,26 @@ def create_banner():
     finishDate = data.get("finishdate")
     title = data.get("title")
 
-    if startDate > finishDate:
-        return jsonify({"mensagem": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
+    if finishDate != "":
 
-    cur = con.cursor()
+        if startDate > finishDate:
+            return jsonify({"message": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
 
-    cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
-    data_atual = cur.fetchone()[0]
+        data_atual = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    if finishDate < data_atual:
-        return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
+        if finishDate < data_atual:
+            return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
 
-    cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
-                (title, startDate, finishDate))
+        cur = con.cursor()
+
+        cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
+                    (title, startDate, finishDate))
+    else:
+        cur = con.cursor()
+
+        cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO) VALUES(?,?) returning id_banner",
+                    (title, startDate))
+
     id_banner = cur.fetchone()
     id_banner = id_banner[0]
 
@@ -5649,7 +5657,7 @@ def get_banners_in_use():
     cur = con.cursor()
     cur.execute(
         "SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= "
-        "CURRENT_DATE")
+        "CURRENT_DATE OR DATAFIM IS NULL")
     response = cur.fetchall()
 
     banners = []
@@ -5704,9 +5712,23 @@ def put_banners_by_id(id):
     title = data.get("title")
     banner = request.files.get("banner")
 
-    cur = con.cursor()
-    cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?",
-                (title, startDate, finishDate, id))
+    if finishDate != "":
+
+        if startDate > finishDate:
+            return jsonify({"message": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
+
+        data_atual = datetime.date.today().strftime("%y-%m-%d")
+
+        if finishDate < data_atual:
+            return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
+
+        cur = con.cursor()
+        cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?",
+                    (title, startDate, finishDate, id))
+    else:
+        cur = con.cursor()
+        cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = NULL WHERE ID_BANNER = ?",
+                    (title, startDate, id))
 
     if banner:
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "banners")
