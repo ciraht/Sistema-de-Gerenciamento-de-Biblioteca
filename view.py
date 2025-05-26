@@ -315,7 +315,7 @@ def formatar_timestamp(timestamp, horario=None):
 
     # Formatar a data para o formato por extenso
     if horario:
-        return data.strftime("%d de %B de %Y em %H:%M:%S")
+        return data.strftime("%d de %B de %Y %H:%M:%S")
     return data.strftime("%d de %B de %Y")
 
 
@@ -3067,7 +3067,6 @@ def relatorio_livros_faltando_json(pagina):
                   "usuarios", "id_usuarios"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
-    print(livros_json)
 
     cur.execute("""
             SELECT 
@@ -3215,44 +3214,65 @@ def gerar_relatorio_livros_faltando():
         return verificacao
     cur = con.cursor()
     cur.execute("""
-    SELECT  
-        a.titulo, 
-        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
-        a.autor, 
-        a.categoria, 
-        a.isbn, 
-        a.qtd_disponivel,
-        a.IDIOMAS,
-        a.ano_publicado,
-        LIST(u.nome || ' (' || u.email || ', ' || u.telefone || ') (Retirado em: ' || e.DATA_RETIRADA || ', Devolver em: ' || e.DATA_DEVOLVER || ')') AS usuarios
-    FROM acervo a
-    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
-    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
-    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
-    WHERE e.status = 'ATIVO'
+    SELECT 
+        dados.titulo,
+        dados.qtd_emprestada,
+        dados.qtd_disponivel,
+        dados.autor,
+        dados.categoria,
+        dados.isbn,
+        dados.idiomas,
+        dados.ano_publicado,
+        LIST(dados.usuario_info) AS usuarios
+    FROM (
+        SELECT  
+            a.id_livro,
+            a.titulo, 
+            a.qtd_disponivel,
+            a.autor, 
+            a.categoria, 
+            a.isbn, 
+            a.IDIOMAS,
+            a.ano_publicado,
+            u.nome || ' (' || u.email || ', ' || u.telefone || ') (Retirado em: ' || e.DATA_RETIRADA || ', Devolver em: ' || e.DATA_DEVOLVER || ')' AS usuario_info,
+            (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE2
+                WHERE IE2.ID_LIVRO = a.ID_LIVRO
+                AND IE2.ID_EMPRESTIMO IN
+                (SELECT E2.ID_EMPRESTIMO FROM EMPRESTIMOS E2 WHERE E2.STATUS IN ('PENDENTE', 'ATIVO'))
+            ) AS qtd_emprestada
+        FROM acervo a
+        INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
+        INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
+        INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
+        WHERE e.status = 'ATIVO'
+    ) dados
     GROUP BY  
-        a.titulo,
-        a.autor, 
-        a.categoria, 
-        a.isbn, 
-        a.qtd_disponivel,
-        a.IDIOMAS,
-        a.ano_publicado
-    ORDER BY COUNT(ie.ID_LIVRO) DESC
+        dados.id_livro,
+        dados.titulo,
+        dados.qtd_emprestada,
+        dados.qtd_disponivel,
+        dados.autor,
+        dados.categoria, 
+        dados.isbn, 
+        dados.idiomas,
+        dados.ano_publicado
+    ORDER BY dados.qtd_emprestada DESC;
+
     """)
     livros = cur.fetchall()
+    print(livros)
     cur.close()
 
     data = [
-        ("Livro", "QTD Emprestada", "Autor",
-         "Categoria", "ISBN", "QTD Total",
+        ("Livro", "QTD Emprestada", "QTD Total",
+         "Autor", "Categoria", "ISBN",
          "Idiomas", "Publicação", "Portadores")
     ]
     mm_pdf = 190.0015555555555
     multiplicador = 0.11111111111111111111111111111111
-    larguras = [mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
-                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
-                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador + 0.1), ]
+    larguras = [mm_pdf * (multiplicador - 0.02), mm_pdf * multiplicador, mm_pdf * (multiplicador - 0.04),
+                mm_pdf * multiplicador, mm_pdf * multiplicador, mm_pdf * (multiplicador - 0.02),
+                mm_pdf * (multiplicador - 0.02), mm_pdf * multiplicador, mm_pdf * (multiplicador + 0.1), ]
     for livro in livros:
         data.append(livro)
     contador_livros = len(livros)
@@ -3281,7 +3301,7 @@ def gerar_relatorio_livros_faltando():
             dado = str(dado)
             word_list = dado.split()
             number_of_words = len(word_list)  # how many words
-            if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
+            if number_of_words > 2:
                 use_default_height = 1
                 new_line_height = pdf.font_size * (number_of_words / 1.15)  # new height change according to data
         if not use_default_height:
@@ -3294,12 +3314,12 @@ def gerar_relatorio_livros_faltando():
     for j, row in enumerate(data):
         i = 0
         for dado in row:
-            if i != 0:
-                dado = str(dado)
-                dado = dado.encode('latin-1', 'ignore').decode('latin-1')
-                line_height = lh_list[j]  # choose right height for current row
-                pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
-                               max_line_height=pdf.font_size)
+            dado = str(dado)
+            dado = dado.encode('latin-1', 'ignore').decode('latin-1')
+            print(dado)
+            line_height = lh_list[j]  # choose right height for current row
+            pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
+                           max_line_height=pdf.font_size)
             i += 1
         pdf.ln(line_height)
 
@@ -3325,7 +3345,12 @@ def gerar_relatorio_livros():
             a.autor, 
             a.CATEGORIA, 
             a.ISBN, 
-            a.QTD_DISPONIVEL,  
+            a.QTD_DISPONIVEL,
+            (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE2
+            WHERE IE2.ID_LIVRO = a.ID_LIVRO
+            AND IE2.ID_EMPRESTIMO IN
+            (SELECT E2.ID_EMPRESTIMO FROM EMPRESTIMOS E2 WHERE E2.STATUS IN ('PENDENTE', 'ATIVO'))
+            ) AS qtd_emprestada,
             a.IDIOMAS, 
             a.ANO_PUBLICADO
         FROM ACERVO a
@@ -3346,14 +3371,14 @@ def gerar_relatorio_livros():
 
     data = [
         ("Livro", "Autor", "Categoria",
-         "ISBN", "QTD Total", "Idiomas",
-         "Publicação")
+         "ISBN", "QTD Total", "QTD Emprestada",
+         "Idiomas", "Publicação")
     ]
     mm_pdf = 190.0015555555555
-    multiplicador = 0.14285714285714285714285714285714
+    multiplicador = 0.125
     larguras = [mm_pdf * (multiplicador - 0.03), mm_pdf * multiplicador, mm_pdf * multiplicador,
                 mm_pdf * (multiplicador + 0.05), mm_pdf * multiplicador, mm_pdf * multiplicador,
-                mm_pdf * (multiplicador - 0.02)]
+                mm_pdf * multiplicador, mm_pdf * (multiplicador - 0.02)]
     for livro in livros:
         data.append(livro)
     contador_livros = len(livros)
@@ -3370,7 +3395,7 @@ def gerar_relatorio_livros():
 
     pdf.set_font("Arial", size=10)
 
-    line_height = pdf.font_size * 1.75
+    line_height = pdf.font_size * 2
     # col_width = pdf.epw / 10
 
     lh_list = []  # list with proper line_height for each row
