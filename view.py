@@ -4126,7 +4126,7 @@ def verificar_reserva(livro_id):
     cur.execute("""
         SELECT QTD_DISPONIVEL, 
             (SELECT COUNT(*) FROM RESERVAS R INNER JOIN ITENS_RESERVA IR ON R.ID_RESERVA = IR.ID_RESERVA WHERE IR.ID_LIVRO = ? AND R.STATUS IN ('PENDENTE', 'EM ESPERA')) AS total_reservas,
-            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS IN ('PENDENTE', 'CONFIRMADA')) AS total_emprestimos
+            (SELECT COUNT(*) FROM EMPRESTIMOS E INNER JOIN ITENS_EMPRESTIMO IE ON E.ID_EMPRESTIMO = IE.ID_EMPRESTIMO WHERE IE.ID_LIVRO = ? AND E.STATUS IN ('PENDENTE', 'ATIVO')) AS total_emprestimos
         FROM ACERVO 
         WHERE ID_LIVRO = ?
     """, (livro_id, livro_id, livro_id))
@@ -4151,7 +4151,7 @@ def verificar_reserva(livro_id):
 
     cur.close()
 
-    mensagem = ""
+    mensagem = "Esse livro não está disponível no momento"
 
     if ja_tem_emprestimo:
         mensagem = "Você já tem esse livro emprestado"
@@ -4856,7 +4856,7 @@ def atender_reserva(id_reserva):
     # Cria novo empréstimo
     cur.execute("""
         INSERT INTO emprestimos (id_usuario, data_devolver, status) 
-        VALUES (?, ?, 'ATIVO') 
+        VALUES (?, ?, 'PENDENTE')
         RETURNING id_emprestimo
     """, (id_usuario, data_devolver))
     id_emprestimo = cur.fetchone()[0]
@@ -4982,7 +4982,7 @@ def atender_emprestimo(id_emprestimo):
 
 @app.route("/multas/<int:pagina>", methods=["GET"])
 def get_all_multas(pagina):
-    verificacao = informar_verificacao(3)
+    verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
     cur = con.cursor()
