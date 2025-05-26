@@ -550,31 +550,21 @@ def trazer_notificacoes():
         return jsonify({"erro": "Usuário não autorizado"}), 401
 
     id_usuario = verificacao['id_usuario']
-    cur = con.cursor()
     try:
+        cur = con.cursor()
         cur.execute("""
             SELECT ID_NOTIFICACAO, TITULO, MENSAGEM, LIDA, DATA_ADICIONADA
             FROM NOTIFICACOES
             WHERE ID_USUARIO = ?
         """, (id_usuario,))
         linhas = cur.fetchall()
-        print(f"\n\n\n\n\nNOTIFICAÇÕES\n{linhas}")
-        linhas2 = []
-        for linha in linhas:
-            linhas2.append(list(linha))
-        for linha in linhas2:
-            data_add = str(linha[4])
-            linha[4] = formatar_timestamp(data_add, True)
-        print("Linhas")
-        print(f"linhas: {linhas} \nlinhas2: {linhas2}")
-
     except Exception as e:
         return jsonify({"erro": "Erro ao buscar notificações", "detalhes": str(e)}), 500
     finally:
         cur.close()
 
     colunas = ['ID_NOTIFICACAO', 'TITULO', 'MENSAGEM', 'LIDA', 'DATA_ADICIONADA']
-    notificacoes = [dict(zip(colunas, linha)) for linha in linhas2]
+    notificacoes = [dict(zip(colunas, linha)) for linha in linhas]
 
     return jsonify({"notificacoes": notificacoes})
 
@@ -2922,6 +2912,38 @@ def avaliar_livro(id):
     return jsonify({
         "message": "Livro avaliado."
     }), 200
+
+@app.route("/avaliarlivro/<int:id>", methods=["DELETE"])
+def delete_avaliacao_livro(id):
+    try:
+        verificacao = informar_verificacao()
+        if verificacao:
+            return verificacao
+        payload = informar_verificacao(trazer_pl=True)
+
+        id_usuario = payload['id_usuario']
+        cur = con.cursor()
+
+        # Verifica se o livro existe
+        cur.execute("SELECT 1 FROM ACERVO WHERE ID_LIVRO = ?", (id,))
+        if not cur.fetchone():
+            return jsonify({"message": "Tentativa de deletar avaliação de livro inexistente."}), 404
+
+        # Verifica se a avaliação existe
+        cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario,))
+        if not cur.fetchone():
+            return jsonify({"message": "Avaliação não encontrada para exclusão."}), 404
+
+        # Deleta a avaliação
+        cur.execute("DELETE FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario,))
+        con.commit()
+        cur.close()
+
+        return jsonify({"message": "Avaliação deletada com sucesso."}), 200
+
+    except Exception as e:
+        print(e)
+        return jsonify({"error": f"Erro ao deletar avaliação: {e}"}), 500
 
 
 @app.route("/livros/<int:id>", methods=["GET"])
