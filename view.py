@@ -154,12 +154,14 @@ def buscar_livro_por_id(id, descontar_faltandos=False):
                 a.QTD_DISPONIVEL, 
                 a.DESCRICAO, 
                 a.idiomas, 
-                a.ANO_PUBLICADO
+                a.ANO_PUBLICADO,
+                (SELECT COUNT(*) FROM AVALIACOES av WHERE av.ID_LIVRO = a.ID_LIVRO) AS QTD_AVALIACOES
             FROM ACERVO a
             WHERE a.id_livro = ?
         """, (id,))
 
         livro = cur.fetchone()
+        print(f"Quantidade avaliacoes {livro[9]}")
         if descontar_faltandos:
             cur.execute("""
             SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
@@ -168,14 +170,8 @@ def buscar_livro_por_id(id, descontar_faltandos=False):
             """, (id,))
             contagem_emp = cur.fetchone()
             contagem_emp = 0 if not contagem_emp else contagem_emp[0]
-            cur.execute("""
-            SELECT COUNT(*) FROM ITENS_RESERVA IE
-            WHERE IE.ID_LIVRO = ? 
-            AND IE.ID_RESERVA IN (SELECT E.ID_RESERVA FROM RESERVAS E WHERE E.STATUS IN ('EM ESPERA', 'PENDENTE'))
-            """, (id,))
-            contagem_res = cur.fetchone()
-            contagem_res = 0 if not contagem_res else contagem_res[0]
-            contagem = contagem_emp + contagem_res
+            # Reservas não são mais contadas aqui
+            contagem = contagem_emp
         if not livro:
             return None  # Retorna None se o livro não for encontrado
 
@@ -213,7 +209,8 @@ def buscar_livro_por_id(id, descontar_faltandos=False):
                 "ano_publicado": livro[8],
                 "imagem": f"{livro[0]}.jpeg",
                 "selectedTags": selected_tags,
-                "avaliacao": avaliacoes
+                "avaliacao": avaliacoes,
+                "qtd_avaliacoes": livro[9]
             }
         return {
             "id": livro[0],
@@ -227,7 +224,8 @@ def buscar_livro_por_id(id, descontar_faltandos=False):
             "ano_publicado": livro[8],
             "imagem": f"{livro[0]}.jpeg",
             "selectedTags": selected_tags,
-            "avaliacao": avaliacoes
+            "avaliacao": avaliacoes,
+            "qtd_avaliacoes": livro[9]
         }
 
     except Exception:
@@ -3046,7 +3044,7 @@ def relatorio_livros_faltando_json(pagina):
     INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
     INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
     INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
-    WHERE e.status = 'ATIVO'
+    WHERE ie.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))
     GROUP BY 
         a.id_livro, 
         a.titulo, 
