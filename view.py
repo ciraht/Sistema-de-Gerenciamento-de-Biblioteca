@@ -552,21 +552,31 @@ def trazer_notificacoes():
         return jsonify({"erro": "Usuário não autorizado"}), 401
 
     id_usuario = verificacao['id_usuario']
+    cur = con.cursor()
     try:
-        cur = con.cursor()
         cur.execute("""
             SELECT ID_NOTIFICACAO, TITULO, MENSAGEM, LIDA, DATA_ADICIONADA
             FROM NOTIFICACOES
             WHERE ID_USUARIO = ?
         """, (id_usuario,))
         linhas = cur.fetchall()
+        print(f"\n\n\n\n\nNOTIFICAÇÕES\n{linhas}")
+        linhas2 = []
+        for linha in linhas:
+            linhas2.append(list(linha))
+        for linha in linhas2:
+            data_add = str(linha[4])
+            linha[4] = formatar_timestamp(data_add, True)
+        print("Linhas")
+        print(f"linhas: {linhas} \nlinhas2: {linhas2}")
+
     except Exception as e:
         return jsonify({"erro": "Erro ao buscar notificações", "detalhes": str(e)}), 500
     finally:
         cur.close()
 
     colunas = ['ID_NOTIFICACAO', 'TITULO', 'MENSAGEM', 'LIDA', 'DATA_ADICIONADA']
-    notificacoes = [dict(zip(colunas, linha)) for linha in linhas]
+    notificacoes = [dict(zip(colunas, linha)) for linha in linhas2]
 
     return jsonify({"notificacoes": notificacoes})
 
@@ -1591,9 +1601,37 @@ def recomendar():
         """
 
         cur.execute(query, tags2)
-        livros = cur.fetchall()
+        livros = []
+        for r in cur.fetchall():
+            cur.execute("""
+                    SELECT t.id_tag, t.nome_tag
+                    FROM LIVRO_TAGS lt
+                    LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                    WHERE lt.ID_LIVRO = ?
+                """, (r[0],))
+            tags = cur.fetchall()
 
-        return jsonify({"tags": tags2, "livros": livros})
+            selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+            livro = {
+                'id': r[0],
+                'titulo': r[1],
+                'autor': r[2],
+                'categoria': r[3],
+                'isbn': r[4],
+                'qtd_disponivel': r[5],
+                'descricao': r[6],
+                'idiomas': r[7],
+                'ano_publicacao': r[8],
+                'selectedTags': selected_tags,
+                'imagem': f"{r[0]}.jpeg"
+            }
+
+            livros.append(livro)
+
+        cur.close()
+
+        return jsonify({"livros": livros, "tags": tags2})
 
     except Exception as e:
         print('Erro ao recomendar:', e)
