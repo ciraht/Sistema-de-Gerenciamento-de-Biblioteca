@@ -20,6 +20,8 @@ senha_secreta = app.config['SECRET_KEY']
 
 def configuracoes():
     cur = con.cursor()
+    # ID_REGISTRO, DIAS_VALIDADE_EMPRESTIMO, DIAS_VALIDADE_EMPRESTIMO_BUSCAR, CHAVE_PIX
+    # RAZAO_SOCIAL, ENDERECO, TELEFONE, EMAIL, DATA_ADICIONADO
     cur.execute("""
                     SELECT *
                     FROM CONFIGURACOES
@@ -320,6 +322,7 @@ def formatar_timestamp(timestamp, horario=None):
 
 
 # Rota para testes de e-mail
+"""
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails_teste():
     cur = con.cursor()
@@ -436,6 +439,7 @@ def enviar_emails_teste():
         raise
     finally:
         cur.close()
+"""
 
 
 @app.route('/configuracoes', methods=["GET"])
@@ -491,10 +495,13 @@ def criar_verificacoes():
         dias_emp = int(dias_emp)
         dias_emp_b = int(dias_emp_b)
     except (ValueError, TypeError):
-        return jsonify({"message": "Os campos de dias devem ser numéricos"}), 400
+        return jsonify({"message": "Os campos de dias devem ser numéricos."}), 400
 
+    cur = con.cursor()
     try:
-        cur = con.cursor()
+        pix = PixQrCode(raz_social, chave_pix, endereco, '100')
+        if not pix.is_valid():
+            return jsonify({"message": "Os dados para Pix são inválidos."}), 401
         cur.execute("""
             INSERT INTO CONFIGURACOES (
                 DIAS_VALIDADE_EMPRESTIMO, 
