@@ -360,9 +360,9 @@ def enviar_emails_teste():
              "Categoria", "ISBN", "QTD Total",
              "Idiomas", "Publicação", "Portadores")
         ]
-        larguras = [190.0015555555555*0.12, 190.0015555555555*0.16, 190.0015555555555*0.12,
-                    190.0015555555555*0.11, 190.0015555555555*0.2, 190.0015555555555*0.1,
-                    190.0015555555555*0.08, 190.0015555555555*0.11, 190.0015555555555*0.5]
+        larguras = [190.0015555555555 * 0.12, 190.0015555555555 * 0.16, 190.0015555555555 * 0.12,
+                    190.0015555555555 * 0.11, 190.0015555555555 * 0.2, 190.0015555555555 * 0.1,
+                    190.0015555555555 * 0.08, 190.0015555555555 * 0.11, 190.0015555555555 * 0.5]
         for livro in livros:
             data.append(livro)
         contador_livros = len(livros)
@@ -1829,7 +1829,7 @@ def excluir_da_minha_lista(id_livro):
     try:
 
         # Verificações
-        cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id_livro, id_usuario, ))
+        cur.execute("SELECT 1 FROM LISTAGEM WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id_livro, id_usuario,))
         if not cur.fetchone():
             cur.close()
             return jsonify({"message": "ID de livro não encontrado."}), 404
@@ -3032,11 +3032,14 @@ def relatorio_livros_faltando_json(pagina):
     SELECT 
         a.id_livro, 
         a.titulo, 
-        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
-        a.autor, 
-        a.categoria, 
-        a.isbn, 
+        (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
+            WHERE IE.ID_LIVRO = a.ID_LIVRO
+            AND IE.ID_EMPRESTIMO IN
+            (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))) AS QTD_EMPRESTADA,
         a.qtd_disponivel,
+        a.autor,
+        a.categoria, 
+        a.isbn,
         a.ano_publicado,
         LIST(u.nome) AS usuarios,
         LIST(u.ID_USUARIO) AS id_usuarios
@@ -3060,7 +3063,8 @@ def relatorio_livros_faltando_json(pagina):
     cur.execute(sql)
     livros = cur.fetchall()
 
-    subtitulos = ["id", "titulo", "qtd_emprestada", "autor", "categoria", "isbn", "qtd_total", "ano_publicado", "usuarios", "id_usuarios"]
+    subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "ano_publicado",
+                  "usuarios", "id_usuarios"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
     print(livros_json)
@@ -3110,25 +3114,30 @@ def relatorio_livros_json(pagina):
     sql = """
         SELECT 
             a.id_livro, 
-            a.titulo, 
+            a.titulo,
+            (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
+            WHERE IE.ID_LIVRO = a.ID_LIVRO
+            AND IE.ID_EMPRESTIMO IN
+            (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))) AS QTD_EMPRESTADA,
+            a.QTD_DISPONIVEL, 
             a.autor, 
             a.CATEGORIA, 
             a.ISBN, 
-            a.QTD_DISPONIVEL, 
             a.DESCRICAO, 
             a.idiomas, 
             a.ANO_PUBLICADO
         FROM ACERVO a
-        ORDER BY a.id_livro
+        ORDER BY a.id_livro DESC
     """
     sql += f' ROWS {inicial} to {final}'
     cur.execute(sql)
     livros = cur.fetchall()
 
-    subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
+    subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao", "idiomas",
                   "ano_publicado"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+    print(livros_json)
 
     cur.execute("""
         SELECT 
@@ -3243,7 +3252,7 @@ def gerar_relatorio_livros_faltando():
     multiplicador = 0.11111111111111111111111111111111
     larguras = [mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
                 mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador),
-                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador + 0.1),]
+                mm_pdf * (multiplicador), mm_pdf * (multiplicador), mm_pdf * (multiplicador + 0.1), ]
     for livro in livros:
         data.append(livro)
     contador_livros = len(livros)
@@ -3342,9 +3351,9 @@ def gerar_relatorio_livros():
     ]
     mm_pdf = 190.0015555555555
     multiplicador = 0.14285714285714285714285714285714
-    larguras = [mm_pdf * (multiplicador-0.03), mm_pdf * multiplicador, mm_pdf * multiplicador,
-                mm_pdf * (multiplicador+0.05), mm_pdf * multiplicador, mm_pdf * multiplicador,
-                mm_pdf * (multiplicador-0.02)]
+    larguras = [mm_pdf * (multiplicador - 0.03), mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * (multiplicador + 0.05), mm_pdf * multiplicador, mm_pdf * multiplicador,
+                mm_pdf * (multiplicador - 0.02)]
     for livro in livros:
         data.append(livro)
     contador_livros = len(livros)
