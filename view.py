@@ -308,21 +308,38 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
     Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
 
 
-def formatar_timestamp(timestamp, horario=None):
+def formatar_timestamp(timestamp, horario=None, somente_data=None):
     # Definir o locale para português (Brasil)
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+
+    if somente_data:
+        data = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
+        return data.strftime("%d de %B de %Y")
 
     # Converter o timestamp para objeto datetime
     data = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
 
     # Formatar a data para o formato por extenso
+
     if horario:
         return data.strftime("%d de %B de %Y %H:%M:%S")
     return data.strftime("%d de %B de %Y")
 
 
+def formatar_telefone(tel):
+    # (18) 12345-1234
+    tel = str(tel)
+    tel = ''.join(filter(str.isdigit, tel))  # Remove caracteres não numéricos
+    if len(tel) == 11:
+        ddd = tel[:2]
+        primeira_parte = tel[2:7]
+        segunda_parte = tel[7:]
+        return f"({ddd}) {primeira_parte}-{segunda_parte}"
+    else:
+        return 0
+
+
 # Rota para testes de e-mail
-"""
 @app.route('/email_teste', methods=['GET'])
 def enviar_emails_teste():
     cur = con.cursor()
@@ -330,108 +347,7 @@ def enviar_emails_teste():
     cur.execute(
         f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
     try:
-        cur.execute("""
-    SELECT 
-        a.titulo,
-        COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
-        a.autor, 
-        a.categoria, 
-        a.isbn, 
-        a.qtd_disponivel,
-        a.IDIOMAS,
-        a.ano_publicado,
-        LIST(u.nome || ' | Email: ' || u.email || ' | Telefone: ' || u.telefone || ' \n ') AS usuarios
-    FROM acervo a
-    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
-    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
-    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
-    WHERE e.status = 'ATIVO'
-    GROUP BY 
-        a.id_livro, 
-        a.titulo, 
-        a.autor, 
-        a.categoria, 
-        a.isbn, 
-        a.qtd_disponivel,
-        a.IDIOMAS,
-        a.ano_publicado
-    ORDER BY a.id_livro
-    """)
-        livros = cur.fetchall()
-        data = [
-            ("Livro", "QTD Emprestada", "Autor",
-             "Categoria", "ISBN", "QTD Total",
-             "Idiomas", "Publicação", "Portadores")
-        ]
-        larguras = [190.0015555555555 * 0.12, 190.0015555555555 * 0.16, 190.0015555555555 * 0.12,
-                    190.0015555555555 * 0.11, 190.0015555555555 * 0.2, 190.0015555555555 * 0.1,
-                    190.0015555555555 * 0.08, 190.0015555555555 * 0.11, 190.0015555555555 * 0.5]
-        for livro in livros:
-            data.append(livro)
-        contador_livros = len(livros)
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        pdf.set_font("Arial", style='B', size=16)
-        pdf.cell(200, 10, "Relatorio de Livros Faltando", ln=True, align='C')
-        pdf.set_font("Arial", style='B', size=13)
-        pdf.cell(200, 10, f"Total de livros Emprestados: {contador_livros}", ln=True, align='C')
-        pdf.ln(5)  # Espaço entre o título e a linha
-        pdf.line(10, pdf.get_y(), 200, pdf.get_y())  # Linha abaixo do título
-        pdf.ln(5)  # Espaço após a linha
-
-        pdf.set_font("Arial", size=10)
-
-        line_height = pdf.font_size * 1.75
-        # col_width = pdf.epw / 10
-
-        lh_list = []  # list with proper line_height for each row
-        use_default_height = 0  # flag
-
-        # create lh_list of line_heights which size is equal to num rows of data
-        for row in data:
-            for dado in row:
-                dado = str(dado)
-                word_list = dado.split()
-                number_of_words = len(word_list)  # how many words
-                if number_of_words > 2:  # names and cities formed by 2 words like Los Angeles are ok)
-                    use_default_height = 1
-                    new_line_height = pdf.font_size * (number_of_words / 1)  # new height change according to data
-            if not use_default_height:
-                lh_list.append(line_height)
-            else:
-                lh_list.append(new_line_height)
-            use_default_height = 0
-
-        # create your fpdf table ..passing also max_line_height!
-        for j, row in enumerate(data):
-            i = 0
-            portadores = []
-            for dado in row:
-                if i != 8:
-                    print("A")
-                    dado = str(dado)
-                    dado = dado.encode('latin-1', 'ignore').decode('latin-1')
-                    line_height = lh_list[j]  # choose right height for current row
-                    pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
-                                   max_line_height=pdf.font_size)
-                else:
-                    portadores.append(dado)
-                i += 1
-
-            pdf.ln(line_height)
-            pdf.set_font("Arial", style='B', size=13)
-            pdf.cell(200, 10, f"Empréstimos:", ln=True, align='C')
-            pdf.set_font("Arial", size=10)
-
-            dado = portadores[0]
-            print(dado)
-            dado = str(dado)
-            dado = dado.encode('latin-1', 'ignore').decode('latin-1')
-            line_height = lh_list[j]  # choose right height for current row
-            pdf.cell(larguras[8], line_height, dado, border=1, align='C', ln=0)
-
-        pdf.output('table_with_cells.pdf')
+        multar_quem_precisa()
 
         return jsonify({"message": "E-mail teste enviado com sucesso!"})
     except Exception as e:
@@ -439,7 +355,6 @@ def enviar_emails_teste():
         raise
     finally:
         cur.close()
-"""
 
 
 @app.route('/configuracoes', methods=["GET"])
@@ -497,11 +412,20 @@ def criar_verificacoes():
     except (ValueError, TypeError):
         return jsonify({"message": "Os campos de dias devem ser numéricos."}), 400
 
-    cur = con.cursor()
+    chave_pix = formatar_telefone(chave_pix)
+    if chave_pix == 0:
+        return jsonify({
+            "message": 'Erro ao formatar chave pix como telefone. Siga este formato com DDD: (18) 12345-1234'}), 401
+
     try:
         pix = PixQrCode(raz_social, chave_pix, endereco, '100')
-        if not pix.is_valid():
-            return jsonify({"message": "Os dados para Pix são inválidos."}), 401
+        teste_erro = pix.is_valid()
+    except Exception as e:
+        return jsonify({"message": "Os dados para Pix são inválidos."}), 401
+
+    cur = con.cursor()
+    try:
+
         cur.execute("""
             INSERT INTO CONFIGURACOES (
                 DIAS_VALIDADE_EMPRESTIMO, 
@@ -1564,7 +1488,8 @@ def recomendar():
             INNER JOIN AVALIACOES a ON a.ID_LIVRO = ac.ID_LIVRO
             LEFT JOIN LIVRO_TAGS lt ON lt.ID_LIVRO = a.ID_LIVRO
             LEFT JOIN TAGS t ON t.ID_TAG = lt.ID_TAG
-            WHERE a.VALOR_TOTAL >= 3.5
+            WHERE (SELECT SUM(VALOR_TOTAL) FROM AVALIACOES A WHERE A.ID_LIVRO = ac.ID_LIVRO)
+             / (SELECT COUNT(*) FROM AVALIACOES A WHERE A.ID_LIVRO = ac.ID_LIVRO) >= 3.5
             GROUP BY t.ID_TAG
         """)
         tags = cur.fetchall()
@@ -1590,9 +1515,11 @@ def recomendar():
                 a.ANO_PUBLICADO
             FROM ACERVO a
             JOIN LIVRO_TAGS LT ON LT.ID_LIVRO = A.ID_LIVRO 
+            JOIN AVALIACOES AV ON av.ID_LIVRO = A.ID_LIVRO
             WHERE LT.ID_TAG IN ({placeholders})
               AND a.disponivel = true
-            ORDER BY a.id_livro ASC
+            ORDER BY (SELECT SUM(VALOR_TOTAL) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO)
+             / (SELECT COUNT(*) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO) DESC
         """
 
         cur.execute(query, tags2)
@@ -2413,7 +2340,7 @@ def devolver_emprestimo(id):
 
     # Verificar se este empréstimo possui multas criadas pela função multar_quem_precisa e enviar e-mail para a pessoa
     cur.execute("""
-        SELECT U.ID_USUARIO, U.NOME, U.EMAIL, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.DATA_ADICIONADO, M.ID_MULTA FROM USUARIOS U
+        SELECT U.ID_USUARIO, U.NOME, U.EMAIL, M.VALOR_BASE, M.VALOR_ACRESCIMO, E.DATA_DEVOLVER, M.ID_MULTA FROM USUARIOS U
         JOIN EMPRESTIMOS E ON E.ID_USUARIO = U.ID_USUARIO
         INNER JOIN MULTAS M ON M.ID_EMPRESTIMO =  E.ID_EMPRESTIMO
         WHERE M.PAGO = FALSE AND M.ID_EMPRESTIMO = ?
@@ -2423,6 +2350,7 @@ def devolver_emprestimo(id):
 
     if tangao:
         data_add = tangao[5]
+        data_add = data_add.date()
 
         cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
         data_atual = cur.fetchone()[0]
@@ -2460,6 +2388,7 @@ def devolver_emprestimo(id):
         email = tangao[2]
 
         chave_pix = configuracoes()[3]
+        chave_pix = formatar_telefone(chave_pix)
 
         # Gerando código de pix para enviar para o e-mail de quem tem multa
         pix = PixQrCode("Read Raccoon", chave_pix, "Birigui", str(valor))
@@ -2470,11 +2399,8 @@ def devolver_emprestimo(id):
                 os.makedirs(app.config['UPLOAD_FOLDER'])
             pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
             os.makedirs(pasta_destino, exist_ok=True)
-
-        # Verificando se já tem uma imagem para esse valor
-        if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}.png"):
-            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
-            # print("Novo quick response code de pix criado")
+        pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+        # print("Novo quick response code de pix criado")
 
         assunto = f'Aviso de multa'
         corpo = f"""
@@ -2897,7 +2823,7 @@ def avaliar_livro(id):
         cur.execute(sql, (id, id_usuario,))
 
         if not cur.fetchone():
-            return jsonify({"message": "Você precisa ler o livro antes de o avaliar"}), 401
+            return jsonify({"message": "Você precisa ler o livro antes de o avaliar."}), 401
 
         cur.execute("SELECT 1 FROM AVALIACOES WHERE ID_LIVRO = ? AND ID_USUARIO = ?", (id, id_usuario,))
         if cur.fetchone():
@@ -3864,6 +3790,36 @@ def trocar_tipo(id):
     cur.close()
 
     return jsonify({"message": "Usuário atualizado com sucesso.", "tipo": data}), 202
+
+
+@app.route("/historico/emprestimos_pendentes/<int:pagina>", methods=["GET"])
+def historico_emprestimos_pendentes(pagina):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    payload = informar_verificacao(trazer_pl=True)
+    id_logado = payload["id_usuario"]
+    cur = con.cursor()
+
+    try:
+        cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL AND E.STATUS = 'PENDENTE'
+            ORDER BY E.DATA_DEVOLVER ASC
+        """, (id_logado,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_livro": d[0], "titulo": d[1], "autor": d[2],
+            "id_emprestimo": d[3], "data_retirada": d[4], "data_devolver": d[5]
+        } for d in dados])
+    finally:
+        cur.close()
 
 
 @app.route("/historico/emprestimos_ativos/<int:pagina>", methods=["GET"])
@@ -4984,7 +4940,7 @@ def atender_reserva(id_reserva):
     data_devolver = formatar_timestamp(str(data_devolver))
     corpo = f"""
         Olá {nome}, Você possui um empréstimo ativo feito a partir do atentimento de uma reserva. <br>
-        Devolva até: {data_devolver} para evitar multas. <br>
+        Devolva até {data_devolver} para evitar multas. <br>
         Livros Emprestados: <br>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
