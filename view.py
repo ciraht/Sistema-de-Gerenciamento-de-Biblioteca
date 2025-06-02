@@ -21,7 +21,7 @@ senha_secreta = app.config['SECRET_KEY']
 def configuracoes():
     cur = con.cursor()
     # ID_REGISTRO, DIAS_VALIDADE_EMPRESTIMO, DIAS_VALIDADE_EMPRESTIMO_BUSCAR, CHAVE_PIX
-    # RAZAO_SOCIAL, ENDERECO, TELEFONE, EMAIL, DATA_ADICIONADO
+    # RAZAO_SOCIAL, ENDERECO, TELEFONE, EMAIL, LIMITE_LIVROS_EMPRESTIMO, LIMITE_LIVROS_RESERVA, DATA_ADICIONADO
     cur.execute("""
                     SELECT *
                     FROM CONFIGURACOES
@@ -257,27 +257,41 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 
         # Corpo em HTML
         html = f"""<!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{assunto}</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-            <div style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 10px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1); overflow: hidden;">
-                <div style="background-color: #1a73e8; color: white; padding: 24px 32px; text-align: center;">
-                    <h1 style="margin: 0; font-size: 26px;">{assunto}</h1>
-                </div>
-                <div style="padding: 32px; color: #333;">
-                    <p style="font-size: 18px; line-height: 1.6;">{corpo}</p>
-                </div>
-                <div style="background-color: #f1f1f1; padding: 20px; text-align: center; font-size: 12px; color: #888;">
-                    © 2025 {configuracoes()[4]}. Todos os direitos reservados.<br>
-                    Este é um e-mail automático, por favor, não responda.
-                </div>
-            </div>
-        </body>
-        </html>"""
+                <html lang="pt-BR">
+                  <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+                    <title>{assunto}</title>
+                  </head>
+                  <body style="margin: 0; padding: 0; background-color: #f2f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+                    <table align="center" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);">
+                      <!-- Cabeçalho -->
+                      <tr>
+                        <td align="center" style="background-color: #1a73e8; padding: 30px 20px;">
+                          <h1 style="color: white; margin: 0; font-size: 26px;">{assunto}</h1>
+                        </td>
+                      </tr>
+                
+                      <!-- Corpo -->
+                      <tr>
+                        <td style="padding: 30px; color: #333;">
+                          <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                            {corpo}
+                          </p>
+                        </td>
+                      </tr>
+                
+                      <!-- Rodapé -->
+                      <tr>
+                        <td style="background-color: #1a1a1a; color: #ccc; text-align: center; padding: 20px; font-size: 12px;">
+                          © {datetime.datetime.now().year} {configuracoes()[4]} Todos os direitos reservados.<br />
+                          Este é um e-mail automático, por favor não responda.
+                        </td>
+                      </tr>
+                    </table>
+                  </body>
+                </html>
+                """
 
         msg.set_content(corpo)
         msg.add_alternative(html, subtype='html')
@@ -402,15 +416,19 @@ def criar_verificacoes():
     endereco = data.get('endereco')
     telefone = data.get('telefone')
     email = data.get('email')
+    limite_emp = data.get('limite_emprestimo')
+    limite_res = data.get('limite_reserva')
 
-    if not all([dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email]):
+    if not all([dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp, limite_res]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     try:
         dias_emp = int(dias_emp)
         dias_emp_b = int(dias_emp_b)
+        limite_emp = int(limite_emp)
+        limite_res = int(limite_res)
     except (ValueError, TypeError):
-        return jsonify({"message": "Os campos de dias devem ser numéricos."}), 400
+        return jsonify({"message": "Os campos de dias e limites de livros devem ser numéricos."}), 400
 
     chave_pix = formatar_telefone(chave_pix)
     if chave_pix == 0:
@@ -434,9 +452,11 @@ def criar_verificacoes():
                 RAZAO_SOCIAL,
                 ENDERECO,
                 TELEFONE,
-                EMAIL)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email))
+                EMAIL,
+                LIMITE_LIVROS_EMPRESTIMO,
+                LIMITE_LIVROS_RESERVA)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp, limite_res))
     finally:
         cur.close()
         con.commit()
@@ -826,12 +846,29 @@ def solicitar_recuperacao():
     # Agendar expiração (deleção do banco de dados)
     agendar_expiracao_codigo(id_codigo, 15)
 
-    assunto = f"""
-    Olá {id_usuario[1]}, este é um e-mail de recuperação de senha, 
-    Seu código de recuperação é <strong>{codigo}</strong>
-    O código de recuperação dura 15 minutos. Caso você não tenha feito essa recuperação, por favor ignore este e-mail.
+    codigo = str(codigo)
+    corpo = f"""
+    Olá <strong>{id_usuario[1]}</strong>,<br><br>
+    Recebemos uma solicitação para redefinir sua senha. Utilize o código abaixo para concluir o processo: 
+    </p>
+    
+    <!-- CÓDIGO -->
+  <table align="center" cellpadding="0" cellspacing="6" style="margin: 20px auto;">
+    <tr>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[0:1]}</td>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[1:2]}</td>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[2:3]}</td>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[3:4]}</td>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[4:5]}</td>
+      <td style="background-color: #1a73e8; color: white; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; width: 40px; height: 40px;">{codigo[5:6]}</td>
+    </tr>
+  </table>
+
+  <p style="font-size: 14px; color: #555; margin-top: 30px;">
+    Este código é válido por 15 minutos. Se você não solicitou a redefinição de senha, ignore este e-mail com segurança.
+  </p>
     """
-    enviar_email_async(email, "Recuperação de Senha", assunto)
+    enviar_email_async(email, "Recuperação de Senha", corpo)
 
     return jsonify({"message": "E-mail de recuperação enviado.",
                     "id_usuario": id_usuario}), 200
@@ -892,7 +929,7 @@ def resetar_senha():
             return jsonify({
                 "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
-        cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ?", (id_usuario,))
+        cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ? ORDER BY ID_CODIGO DESC", (id_usuario,))
         codigo = cur.fetchone()
         if not codigo:
             cur.close()
@@ -900,7 +937,7 @@ def resetar_senha():
 
         if codigo[0] != codigo_recebido:
             cur.close()
-            return jsonify({"message": "Código expirado."}), 401
+            return jsonify({"message": "Código inválido."}), 401
 
         senha_nova = generate_password_hash(senha_nova)
         cur.execute(
@@ -2389,6 +2426,9 @@ def devolver_emprestimo(id):
 
         chave_pix = configuracoes()[3]
         chave_pix = formatar_telefone(chave_pix)
+        if chave_pix == 0:
+            cur.close()
+            return jsonify({"message": "Erro ao recuperar chave PIX, edite ela nas configurações para um telefone válido."})
 
         # Gerando código de pix para enviar para o e-mail de quem tem multa
         pix = PixQrCode("Read Raccoon", chave_pix, "Birigui", str(valor))
@@ -4102,8 +4142,25 @@ def adicionar_carrinho_reserva():
 
     data = request.json
     id_livro = data.get("id_livro")
+    limite_res = configuracoes()[9]
 
     cur = con.cursor()
+
+    # Livros em carrinho:
+    cur.execute("SELECT COUNT(*) FROM CARRINHO_RESERVAS cr WHERE cr.ID_USUARIO = ?", (id_usuario,))
+    qtd_carrinho = cur.fetchone()[0]
+
+    # Livros em empréstimos ativos:
+    cur.execute("""
+            SELECT COUNT(*) FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA IN
+    (SELECT r.ID_RESERVA FROM RESERVAS r WHERE r.ID_USUARIO = ? AND r.STATUS = 'PENDENTE' )
+        """, (id_usuario,))
+    qtd_reservada_por_usuario = cur.fetchone()[0]
+
+    qtd_reservada = qtd_carrinho + qtd_reservada_por_usuario
+    if qtd_reservada >= limite_res:
+        cur.close()
+        return jsonify({"message": f"Seu limite de livros em reservas ({limite_res}) foi alcançado."}), 401
 
     cur.execute("SELECT 1 from carrinho_reservas where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
     if cur.fetchone():
@@ -4319,7 +4376,26 @@ def adicionar_carrinho_emprestimo():
     data = request.json
     id_livro = data.get("id_livro")
 
+    limite_emp = configuracoes()[8]
+
     cur = con.cursor()
+
+    # Livros em carrinho:
+    cur.execute("SELECT COUNT(*) FROM CARRINHO_EMPRESTIMOS ce WHERE ce.ID_USUARIO = ?", (id_usuario, ))
+    qtd_carrinho = cur.fetchone()[0]
+
+    # Livros em empréstimos ativos:
+    cur.execute("""
+        SELECT COUNT(*) FROM ITENS_EMPRESTIMO ie WHERE ie.ID_EMPRESTIMO IN
+    (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.ID_USUARIO = ? AND e.STATUS IN ('ATIVO', 'PENDENTE') )
+    """, (id_usuario, ))
+    qtd_emprestada_por_usuario = cur.fetchone()[0]
+
+    qtd_pega = qtd_carrinho + qtd_emprestada_por_usuario
+    if qtd_pega >= limite_emp:
+        cur.close()
+        return jsonify({"message": f"Seu limite de livros em empréstimo ({limite_emp}) foi alcançado."}), 401
+
     cur.execute("SELECT 1 from carrinho_emprestimos where id_livro = ? and id_usuario = ?", (id_livro, id_usuario))
     if cur.fetchone():
         return jsonify({"message": "Você não pode colocar 2 livros iguais no carrinho."}), 401
@@ -5647,9 +5723,6 @@ def create_banner():
 
         data_atual = datetime.datetime.now().strftime("%Y-%m-%d")
 
-        if finishDate < data_atual:
-            return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
-
         cur = con.cursor()
 
         cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
@@ -5744,12 +5817,14 @@ def get_banners_all():
 
     banners = []
     for r in response:
+        finish_date = r[3] + datetime.timedelta(days=1)
+        start_date = r[2] + datetime.timedelta(days=1)
         imagePath = f"{r[0]}.jpeg"
         banner = {
             "id_banner": r[0],
             "title": r[1],
-            "startDate": r[2],
-            "finishDate": r[3],
+            "startDate": start_date,
+            "finishDate": finish_date,
             "imagePath": imagePath
         }
         banners.append(banner)
@@ -5775,9 +5850,6 @@ def put_banners_by_id(id):
             return jsonify({"message": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
 
         data_atual = datetime.date.today().strftime("%y-%m-%d")
-
-        if finishDate < data_atual:
-            return jsonify({"message": "A data de término não pode ser menor que a data atual"}), 400
 
         cur = con.cursor()
         cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?",
