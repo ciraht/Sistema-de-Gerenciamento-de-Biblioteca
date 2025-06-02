@@ -2366,13 +2366,17 @@ def devolver_emprestimo(id):
                 criar_notificacao(usuario[0], mensagem_notificacao, "Aviso de Reserva")
 
                 corpo = f"""
-                        <p>Uma reserva sua agora está em espera!</p>
-                        <p><strong>Livros que você está tentando reservar:</strong></p>
+                        Uma reserva sua agora está em espera!</p>
+                        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros que você está tentando reservar:</strong></p>
                         <ul style="padding-left: 20px; font-size: 16px;">
                         """
                 for titulo, autor in livros_reservados:
                     corpo += f"<li>{titulo}, por {autor}</li>"
-                corpo += "</ul><p>Agora, vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar).</p>"
+                corpo += f"""
+                </ul>
+                <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">Agora,
+                 vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar),
+                  a biblioteca está em <strong>{configuracoes()[5]}</strong>.</p>"""
                 enviar_email_async(usuario[2], "Aviso de reserva", corpo)
 
     # Verificar se este empréstimo possui multas criadas pela função multar_quem_precisa e enviar e-mail para a pessoa
@@ -4339,12 +4343,11 @@ def confirmar_reserva():
     email = usuario[1]
 
     assunto = nome + ", uma nota de reserva"
-    corpo = """
-        <p>
+    corpo = f"""
             Você fez uma <strong>reserva</strong>!, por enquanto ela está pendente, 
-            quando ela for atendida nós te avisaremos para vir buscar os livros.
+            quando ela for atendida nós te avisaremos para vir buscar os livros. Local: <strong>{configuracoes()[5]}</strong>.
         </p>
-        <p><strong>Livros reservados:</strong></p>
+        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros reservados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
     for livro in livros_reservados:
@@ -4547,6 +4550,26 @@ def confirmar_emprestimo():
         cur.close()
         return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
 
+    limite_emp = configuracoes()[8]
+    # Livros em carrinho:
+    cur.execute("SELECT COUNT(*) FROM CARRINHO_EMPRESTIMOS ce WHERE ce.ID_USUARIO = ?", (id_usuario,))
+    qtd_carrinho = cur.fetchone()[0]
+
+    # Livros em empréstimos ativos:
+    cur.execute("""
+            SELECT COUNT(*) FROM ITENS_EMPRESTIMO ie WHERE ie.ID_EMPRESTIMO IN
+        (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.ID_USUARIO = ? AND e.STATUS IN ('ATIVO', 'PENDENTE') )
+        """, (id_usuario,))
+    qtd_emprestada_por_usuario = cur.fetchone()[0]
+
+    qtd_pega = qtd_carrinho + qtd_emprestada_por_usuario
+    if qtd_pega > limite_emp:
+        cur.close()
+        return jsonify({"message":
+        f"""Seu limite de livros em empréstimo ({limite_emp}) foi alcançado. Você possui {qtd_carrinho} no carrinho e 
+        {qtd_emprestada_por_usuario} em empréstimos ativos ou pendentes.
+"""}), 401
+
     # Cria o empréstimo — data_criacao já está com valor padrão no banco
     data_validade = devolucao()
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO",
@@ -4582,16 +4605,16 @@ def confirmar_emprestimo():
 
     assunto = nome + ", sua solicitação de empréstimo foi registrada"
     corpo = f"""
-        <p>Você fez uma <strong>solicitação de empréstimo</strong>!</p>
-        <p><strong>Livros emprestados:</strong></p>
+        Você fez uma <strong>solicitação de empréstimo</strong>!</p>
+        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros emprestados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
     for titulo, autor in livros_emprestados:
         corpo += f"<li>{titulo}, por {autor}</li>"
-    corpo += """</ul>
-        <p>
+    corpo += f"""</ul>
+        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
             Por enquanto esse empréstimo está marcado como pendente, 
-            vá até a biblioteca para ser atendido e retirar os livros.
+            vá até a biblioteca para ser atendido e retirar os livros, em <strong>{configuracoes()[5]}</strong>.
         </p>"""
 
     enviar_email_async(email, assunto, corpo)
@@ -5820,6 +5843,8 @@ def get_banners_all():
         finish_date = r[3]
         start_date = r[2]
         imagePath = f"{r[0]}.jpeg"
+        finish_date = r[3] + datetime.timedelta(days=1) if r[3] else "—"
+        start_date = r[2] + datetime.timedelta(days=1) if r[2] else "—"
         banner = {
             "id_banner": r[0],
             "title": r[1],
