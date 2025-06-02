@@ -2306,6 +2306,8 @@ def devolver_emprestimo(id):
         cur.close()
         return jsonify({"message": "Empréstimo já devolvido."}), 401
 
+    multar_por_id_emprestimo(id)
+
     # Atualizar o empréstimo como DEVOLVIDO
     cur.execute("""
         UPDATE EMPRESTIMOS 
@@ -2321,7 +2323,6 @@ def devolver_emprestimo(id):
         WHERE i.id_emprestimo = ?
     """, (id,))
     livros = cur.fetchall()
-
     if livros:
         for livro in livros:
             id_livro = livro[0]
@@ -4948,6 +4949,52 @@ def multar_quem_precisa():
                     WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
                     AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
                 """)
+
+        tangoes = cur.fetchall()
+        print(f'tangões: {tangoes}')
+
+        cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
+            FROM VALORES
+            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES)
+        """)
+
+        valores = cur.fetchone()
+        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
+
+        valor_base = valores[0]
+        valor_ac = valores[1]
+
+        for tangao in tangoes:
+            cur.execute(
+                "INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
+                (tangao[0], tangao[1], valor_base, valor_ac))
+
+        con.commit()
+
+    except Exception:
+        raise
+    finally:
+        cur.close()
+
+
+def multar_por_id_emprestimo(id_emprestimo):
+    print('\nmultar_por_id_emprestimo\n')
+
+    cur = con.cursor()
+
+    try:
+        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+        data_atual = cur.fetchone()[0]
+
+        # Adicionando multas ao banco de dados
+        cur.execute("""
+                    SELECT u.id_usuario, e.id_emprestimo
+                    FROM emprestimos e
+                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
+                    AND E.ID_EMPRESTIMO = ?
+                    AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
+                """, (id_emprestimo, ))
 
         tangoes = cur.fetchall()
         print(f'tangões: {tangoes}')
