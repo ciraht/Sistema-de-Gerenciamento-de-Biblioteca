@@ -5817,8 +5817,8 @@ def get_banners_all():
 
     banners = []
     for r in response:
-        finish_date = r[3] + datetime.timedelta(days=1)
-        start_date = r[2] + datetime.timedelta(days=1)
+        finish_date = r[3]
+        start_date = r[2]
         imagePath = f"{r[0]}.jpeg"
         banner = {
             "id_banner": r[0],
