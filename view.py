@@ -55,7 +55,7 @@ def agendar_tarefas():
 
 
 def avisar_para_evitar_multas():
-    print('\navisar_para_evitar_multas\n')
+    # print('\navisar_para_evitar_multas\n')
 
     cur = con.cursor()
 
@@ -198,7 +198,7 @@ def testar():
 
 
 def multar_por_id_emprestimo(id_emprestimo):
-    print('\nmultar_por_id_emprestimo\n')
+    # print('\nmultar_por_id_emprestimo\n')
 
     cur = con.cursor()
 
@@ -217,7 +217,6 @@ def multar_por_id_emprestimo(id_emprestimo):
                 """, (id_emprestimo,))
 
         tangoes = cur.fetchall()
-        print(f'tangões: {tangoes}')
 
         cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
             FROM VALORES
@@ -225,7 +224,6 @@ def multar_por_id_emprestimo(id_emprestimo):
         """)
 
         valores = cur.fetchone()
-        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
         valor_base = valores[0]
         valor_ac = valores[1]
@@ -354,7 +352,6 @@ def buscar_livro_por_id(id, descontar_faltandos=False):
         """, (id,))
 
         livro = cur.fetchone()
-        print(f"Quantidade avaliacoes {livro[9]}")
         if descontar_faltandos:
             cur.execute("""
             SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
@@ -676,12 +673,13 @@ def trazer_notificacoes():
         return jsonify({"erro": "Usuário não autorizado"}), 401
 
     id_usuario = verificacao['id_usuario']
+    cur = con.cursor()
     try:
-        cur = con.cursor()
         cur.execute("""
             SELECT ID_NOTIFICACAO, TITULO, MENSAGEM, LIDA, DATA_ADICIONADA
             FROM NOTIFICACOES
-            WHERE ID_USUARIO = ?
+            WHERE ID_USUARIO = ? AND CURRENT_DATE - CAST(DATA_ADICIONADA AS DATE) <= 20
+            ORDER BY DATA_ADICIONADA ASC
         """, (id_usuario,))
         linhas = cur.fetchall()
     except Exception as e:
@@ -801,7 +799,6 @@ def cadastrar():
             ), 401
         con.commit()
 
-        print(id_usuario)
         cur.close()
 
         # Verificações de Imagem
@@ -894,8 +891,6 @@ def logar():
     senha = data.get('senha')
     email = email.lower()
 
-    print(email, senha)
-
     cur = con.cursor()
 
     # Checando se a senha está correta
@@ -927,7 +922,6 @@ def logar():
             id_user_str = f"usuario-{id_user}"
             if id_user_str in global_contagem_erros:
                 del global_contagem_erros[id_user_str]
-                print("Contagem de erros deletada")
             if tipo == 2:
                 cur.close()
                 return jsonify(
@@ -962,7 +956,6 @@ def logar():
             tipo = cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
             tipo = tipo.fetchone()[0]
             if tipo != 3:
-                print(f"Primeiro: {global_contagem_erros}")
                 id_user_str = f"usuario-{id_user}"
                 if id_user_str not in global_contagem_erros:
                     global_contagem_erros[id_user_str] = 1
@@ -976,9 +969,7 @@ def logar():
                         return jsonify({"message": "Tentativas excedidas, usuário inativado."}), 401
                     elif global_contagem_erros[id_user_str] > 3:
                         global_contagem_erros[id_user_str] = 1
-                        print("Contagem resetada para 1")  # Em teoria é para ser impossível a execução chegar aqui
-
-                    print(f"Segundo: {global_contagem_erros}")
+                        # Em teoria é para ser impossível a execução chegar aqui
 
             cur.close()
             return jsonify({"message": "Credenciais inválidas."}), 401
@@ -1190,7 +1181,6 @@ def inativar_usuario():
     # Checar se já está inativado
     cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     tipo = cur.fetchone()[0]
-    print(tipo)
     if not tipo:
         cur.close()
         return jsonify({"message": "Usuário já está inativado."}), 200
@@ -1553,7 +1543,7 @@ def get_livros_adm(pagina):
     cur.close()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     return jsonify(livros[inicial - 1:final]), 200
 
@@ -1595,7 +1585,6 @@ def dez_da_semana():
             ROWS 1 TO 10
             """)
         livrostop = cur.fetchall()
-        print(livrostop)
         if livrostop:
             livros = []
             for r in livrostop:
@@ -1769,7 +1758,7 @@ def recomendar():
         return jsonify({"livros": livros, "tags": tags2})
 
     except Exception as e:
-        print('Erro ao recomendar:', e)
+        print('Erro ao recomendar')
         raise
     finally:
         cur.close()
@@ -1782,7 +1771,6 @@ def recomendar_com_base_em():
         return jsonify({"visivel": False})
 
     id_usuario = informar_verificacao(trazer_pl=True)["id_usuario"]
-    print(id_usuario)
 
     cur = con.cursor()
 
@@ -2041,8 +2029,6 @@ def adicionar_livros():
 
     imagem = request.files.get('imagem')
 
-    print(tags)
-
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
         return jsonify({"message": "Todos os campos são obrigatórios."}), 401
     qtd_disponivel = int(qtd_disponivel)
@@ -2086,7 +2072,6 @@ def adicionar_livros():
     # Associando tags ao livro
     for tag in tags:
         tag_id = tag
-        print(f"Tag_id:{tag_id}")
         if tag_id:
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (livro_id, tag_id))
 
@@ -2173,9 +2158,6 @@ def editar_livro(id_livro):
     ano_publicado = data.get("ano_publicado")
     qtd_disponivel = int(qtd_disponivel)
 
-    print(data)
-    print(tags)
-
     imagem = request.files.get("imagem")
     # Verificando se tem todos os dados
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
@@ -2212,7 +2194,6 @@ def editar_livro(id_livro):
     # Associando tags ao livro
     for tag in tags:
         tag_id = tag
-        print(f"Tag_id:{tag_id}")
         if tag_id:
             cur.execute("INSERT INTO livro_tags (id_livro, id_tag) VALUES (?, ?)", (id_livro, tag_id))
 
@@ -2305,7 +2286,6 @@ def alterar_disponibilidade_livro():
         'SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA IN (SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?)',
         (id_livro,))
     id_usuario = cur.fetchall()
-    print(f"\nUsuários que tiveram suas reservas canceladas: {id_usuario}")
 
     cur.execute("SELECT ID_RESERVA FROM ITENS_RESERVA WHERE ID_LIVRO = ?", (id_livro,))
     reservas_deletar = cur.fetchall()
@@ -2363,7 +2343,6 @@ def alterar_disponibilidade_livro():
         "SELECT ID_USUARIO FROM EMPRESTIMOS e WHERE e.STATUS = 'ATIVO' AND DATA_DEVOLVIDO IS NULL AND ID_EMPRESTIMO IN (SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?)",
         (id_livro,))
     id_usuario = cur.fetchall()
-    print(f"\nUsuários que tiveram seu empréstimo cancelado: {id_usuario}")
 
     cur.execute("SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
     emprestimos_deletar = cur.fetchall()
@@ -2577,7 +2556,6 @@ def devolver_emprestimo(id):
         data_atual = cur.fetchone()[0]
 
         dias_passados = (data_atual - data_add).days
-        print(dias_passados)
 
         # Pegando valores
         cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
@@ -2586,7 +2564,6 @@ def devolver_emprestimo(id):
                 """, (tangao[6],))
 
         valores = cur.fetchone()
-        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
         valor_base = valores[0]
         valor_ac = valores[1]
@@ -2595,15 +2572,12 @@ def devolver_emprestimo(id):
         valor2 = valor
         valor2 = str(valor2)
         valor2.replace('.', ', ')
-        print(f"Valor2: {valor2}")
         # print(f"Valor antes da formatação: {valor}")
         valor = str(valor)
         # print(f"Valor string: {valor}")
         valor = valor.replace('.', '')
         # print(f"Valor depois da formatação: {valor}")
         valor = int(valor)
-
-        print(valor)
 
         nome = tangao[1]
         email = tangao[2]
@@ -2679,7 +2653,6 @@ def enviar_imagem_usuario():
 
     imagem = request.files.get("imagem")
     id_usuario = payload["id_usuario"]
-    print(id_usuario)
 
     # Verificações de Imagem
     imagens = [
@@ -2752,8 +2725,6 @@ def enviar_imagem_livro():
     imagem = request.files.get("imagem")
     data = request.form.to_dict()
     id_livro = data.get("id_livro")
-
-    print(id_livro)
 
     # Verificações de Imagem
     imagens = [
@@ -2917,7 +2888,7 @@ def pesquisar_livros(pagina):
 
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     sql += f" ORDER BY a.titulo ROWS {inicial} TO {final}"
 
@@ -3010,7 +2981,7 @@ def pesquisar_livros_biblio(pagina):
 
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     sql += f'ROWS {inicial} to {final}'
 
@@ -3141,7 +3112,6 @@ def delete_avaliacao_livro(id):
 @app.route("/livros/<int:id>", methods=["GET"])
 def get_livros_id(id):
     livro = buscar_livro_por_id(id, True)
-    print(livro)
     if not livro:
         return jsonify({"error": "Livro não encontrado."}), 404
     return jsonify(livro)
@@ -3154,7 +3124,7 @@ def relatorio_multas_pendentes_json(pagina):
         return verificacao
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     sql = """
             SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
@@ -3204,7 +3174,7 @@ def relatorio_multas_json(pagina):
     cur = con.cursor()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
     sql = """
             SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
             FROM emprestimos e
@@ -3241,7 +3211,7 @@ def relatorio_livros_faltando_json(pagina):
     cur = con.cursor()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
     sql = """
     SELECT 
         a.id_livro, 
@@ -3323,7 +3293,7 @@ def relatorio_livros_json(pagina):
     cur = con.cursor()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT 
             a.id_livro, 
@@ -3350,7 +3320,6 @@ def relatorio_livros_json(pagina):
                   "ano_publicado"]
 
     livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
-    print(livros_json)
 
     cur.execute("""
         SELECT 
@@ -3369,7 +3338,6 @@ def relatorio_livros_json(pagina):
     livros = cur.fetchall()
     cur.close()
 
-    print(len(livros))
     return jsonify({
         "total": len(livros),
         "livros": livros_json
@@ -3384,7 +3352,7 @@ def relatorio_usuarios_json(pagina):
     cur = con.cursor()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT
             id_usuario, 
@@ -3474,7 +3442,6 @@ def gerar_relatorio_livros_faltando():
 
     """)
     livros = cur.fetchall()
-    print(livros)
     cur.close()
 
     data = [
@@ -3530,7 +3497,6 @@ def gerar_relatorio_livros_faltando():
         for dado in row:
             dado = str(dado)
             dado = dado.encode('latin-1', 'ignore').decode('latin-1')
-            print(dado)
             line_height = lh_list[j]  # choose right height for current row
             pdf.multi_cell(larguras[i], line_height, dado, border=1, align='C', ln=3,
                            max_line_height=pdf.font_size)
@@ -3720,7 +3686,7 @@ def gerar_relatorio_usuarios():
     for j, row in enumerate(data):
         i = 0
         for dado in row:
-            print(f"Dado: {dado}, i: {i}")
+            # print(f"Dado: {dado}, i: {i}")
             if i == 0:
                 i += 1
                 continue
@@ -3756,7 +3722,6 @@ def gerar_relatorio_multas():
         """)
     tangoes = cur.fetchall()
     cur.close()
-    print(tangoes)
 
     data = [
         ("Nome", "Email", "Telefone",
@@ -3807,7 +3772,7 @@ def gerar_relatorio_multas():
     for j, row in enumerate(data):
         i = 0
         for dado in row:
-            print(f"Dado: {dado}, i: {i}")
+            # print(f"Dado: {dado}, i: {i}")
             dado2 = dado
             if dado == True:
                 dado2 = "Sim"
@@ -3898,7 +3863,7 @@ def gerar_relatorio_multas_pendentes():
     for j, row in enumerate(data):
         i = 0
         for dado in row:
-            print(f"Dado: {dado}, i: {i}")
+            # print(f"Dado: {dado}, i: {i}")
             dado2 = dado
             if dado == True:
                 dado2 = "Sim"
@@ -4007,7 +3972,7 @@ def usuarios(pagina):
     cur.close()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     return jsonify(listaUsuarios[inicial - 1:final])
 
@@ -4263,8 +4228,6 @@ def usuario_put_id(id_usuario):
     senha_antiga = data.get('senhaAntiga')
     tipo_usuario = data.get('tipo')
     imagem = request.files.get('imagem')
-
-    print(data)
 
     if not all([nome, email, telefone, endereco]):
         cur.close()
@@ -5371,7 +5334,6 @@ def atender_emprestimo(id_emprestimo):
 
     id_usuario = dados[0]
     data_devolver = devolucao()
-    print(data_devolver)
 
     cur.execute("""
     SELECT U.EMAIL, U.NOME FROM EMPRESTIMOS E 
@@ -5431,7 +5393,7 @@ def get_all_multas(pagina):
     cur = con.cursor()
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT 
             M.ID_MULTA,
@@ -5512,7 +5474,7 @@ def pesquisar_usuarios(pagina):
 
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     sql += f'ROWS {inicial} to {final}'
 
@@ -5724,7 +5686,7 @@ def get_all_movimentacoes(pagina):
 
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     return jsonify(movimentacoes[inicial - 1:final])
 
@@ -5844,7 +5806,7 @@ def pesquisar_movimentacoes(pagina):
 
     inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
     final = pagina * 8
-    print(f'ROWS {inicial} to {final}')
+    # print(f'ROWS {inicial} to {final}')
 
     return jsonify(movimentacoes[inicial - 1:final])
 
@@ -5945,7 +5907,6 @@ def atender_multa(id_multa):
         data_atual = cur.fetchone()[0]
 
         dias_passados = (data_atual - data_add).days
-        print(dias_passados)
 
         # Pegando valores
         cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
@@ -5954,25 +5915,20 @@ def atender_multa(id_multa):
                     """, (id_multa,))
 
         valores = cur.fetchone()
-        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
 
         valor = valor_base + valor_ac * dias_passados
         valor2 = valor
         valor2 = str(valor2)
         valor2.replace('.', ', ')
-        print(f"Valor2: {valor2}")
         # print(f"Valor antes da formatação: {valor}")
         valor = str(valor)
         # print(f"Valor string: {valor}")
         valor = valor.replace('.', '')
         # print(f"Valor depois da formatação: {valor}")
         valor = int(valor)
-
-        print(valor)
     else:
         con.commit()
         cur.close()
-        print(tangao)
         return jsonify(
             {"message": "Multa paga. Erro ao consultar informações de usuário para envio de informações"}), 500
 
