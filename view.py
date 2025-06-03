@@ -32,9 +32,11 @@ def configuracoes():
     return config_mais_recente
 
 
-def devolucao():
+def devolucao(data_validade=False):
     # Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual.
     dias_emprestimo = configuracoes()[1]
+    if data_validade:
+        dias_emprestimo = configuracoes()[2]
     data_devolucao = datetime.datetime.now() + datetime.timedelta(days=dias_emprestimo)
     return data_devolucao
 
@@ -48,8 +50,197 @@ def calcular_paginacao(pagina):
 def agendar_tarefas():
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=avisar_para_evitar_multas, trigger='cron', hour=8, minute=20)
-    scheduler.add_job(func=multar_quem_precisa, trigger='cron', hour=8, minute=19)  # Essa função cria os códigos PIX
+    scheduler.add_job(func=invalidar_emp_res, trigger='cron', hour=8, minute=19)
     scheduler.start()
+
+
+def avisar_para_evitar_multas():
+    print('\navisar_para_evitar_multas\n')
+
+    cur = con.cursor()
+
+    try:
+
+        cur.execute("""
+            SELECT 
+                CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) AS dias_diferenca, u.EMAIL, u.NOME, e.DATA_DEVOLVER, u.ID_USUARIO
+                FROM 
+                EMPRESTIMOS e
+            INNER JOIN USUARIOS u ON e.ID_USUARIO = u.ID_USUARIO
+            WHERE 
+                STATUS = 'ATIVO'
+            AND CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 3
+                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 2
+                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 1
+        """)
+
+        dias_que_faltam = cur.fetchall()
+
+        for dias, email, nome, data_devolver, id_usuario in dias_que_faltam:
+            data_formatada = data_devolver.strftime("%d/%m/%Y")
+            corpo = f"""
+                Olá <strong>{nome}</strong>,
+            </p>
+
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                Este é um lembrete de que os livros de um emprestimo seu devem ser devolvidos até <strong>{data_formatada}</strong>.
+            </p>
+
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. 
+                Caso os livros do empréstimo já tenham sido devolvidos, por favor, notifique um bibliotecário.
+            </p>
+
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                Este aviso é feito diariamente, por favor resolva isto em até <strong>{dias}</strong> dias.
+            </p>
+
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                Agradecemos sua atenção e colaboração.
+            </p>
+            """
+            enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
+            mensagem = f"Um empréstimo seu vence em {dias} dias, tome cuidado para evitar multas"
+            criar_notificacao(id_usuario, mensagem, "Lembrete: Devolução de Livro")
+
+    except Exception:
+        raise
+    finally:
+        cur.close()
+
+
+def invalidar_emp_res():
+    cur = con.cursor()
+    try:
+        cur.execute("""
+        SELECT u.nome, u.email, e.id_emprestimo, u.id_usuario, e.data_validade FROM USUARIOS u 
+        INNER JOIN EMPRESTIMOS e ON e.ID_USUARIO = u.ID_USUARIO 
+        WHERE e.DATA_RETIRADA IS NULL AND CAST(e.DATA_VALIDADE AS DATE) < CURRENT_DATE""")
+        abandonadores_de_emprestimo = cur.fetchall()
+
+        cur.execute("""
+        SELECT u.nome, u.email, r.id_reserva, u.id_usuario, r.data_validade FROM USUARIOS u 
+        INNER JOIN RESERVAS r ON r.ID_USUARIO = u.ID_USUARIO 
+        WHERE CAST (r.DATA_VALIDADE AS DATE) < CURRENT_DATE AND r.DATA_VALIDADE IS NOT NULL""")
+        abandonadores_de_reserva = cur.fetchall()
+
+        cur.execute("""UPDATE EMPRESTIMOS e SET e.STATUS = 'CANCELADO' WHERE e.DATA_RETIRADA IS NULL
+         AND CAST(e.DATA_VALIDADE AS DATE) < CURRENT_DATE""")
+        cur.execute("""UPDATE RESERVAS r SET r.STATUS = 'CANCELADA' WHERE CAST (r.DATA_VALIDADE AS DATE) < CURRENT_DATE
+         AND r.DATA_VALIDADE IS NOT NULL""")
+        con.commit()
+
+        for nome, email, id_emp, id_user, data_validade in abandonadores_de_emprestimo:
+            cur.execute("""
+            SELECT TITULO, AUTOR FROM ACERVO a 
+            INNER JOIN ITENS_EMPRESTIMO ie ON ie.ID_LIVRO = a.ID_LIVRO 
+            WHERE ie.ID_EMPRESTIMO = ?""", (id_emp, ))
+            livros = cur.fetchall()
+            data_formatada = formatar_timestamp(data_validade)
+
+            corpo = f"""
+                    Um empréstimo feito por você não foi buscado a tempo e portanto foi cancelado. 
+                    </p>
+                    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                    <strong>Livros que você estava tentando pegar:</strong></p>
+                    <ul style="padding-left: 20px; font-size: 16px;">
+                    """
+            for titulo, autor in livros:
+                corpo += f"<li>{titulo}, por {autor}</li>"
+            corpo += f"""
+                        </ul>
+                        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                        Você teve até o dia {data_formatada}.
+                         </p>"""
+            enviar_email_async(email, "Vencimento de Empréstimo", corpo)
+            criar_notificacao(id_user, f"""Um empréstimo seu não foi buscado a tempo e portanto foi cancelado, 
+            você teve até o dia {data_formatada}.
+            """, "Vencimento de Empréstimo")
+
+        for nome, email, id_res, id_user, data_validade in abandonadores_de_reserva:
+            cur.execute("""
+            SELECT TITULO, AUTOR FROM ACERVO a 
+            INNER JOIN ITENS_EMPRESTIMO ie ON ie.ID_LIVRO = a.ID_LIVRO 
+            WHERE ie.ID_EMPRESTIMO = ?""", (id_res,))
+            livros = cur.fetchall()
+            data_formatada = formatar_timestamp(data_validade)
+
+            corpo = f"""
+                    Uma reserva feita por você não foi buscada a tempo e portanto foi cancelada. 
+                    </p>
+                    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                    <strong>Livros que você estava tentando pegar:</strong></p>
+                    <ul style="padding-left: 20px; font-size: 16px;">
+                    """
+            for titulo, autor in livros:
+                corpo += f"<li>{titulo}, por {autor}</li>"
+            corpo += f"""
+                        </ul>
+                        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                        Você teve até o dia {data_formatada}.
+                         </p>"""
+            enviar_email_async(email, "Vencimento de Reserva", corpo)
+            criar_notificacao(id_user, f"""Uma reserva sua não foi buscada a tempo e portanto foi cancelada, 
+            você teve até o dia {data_formatada}.
+            """, "Vencimento de Reserva")
+
+    except Exception:
+        print("Erro em invalidar_emp_res")
+        raise
+    finally:
+        cur.close()
+
+
+@app.route("/teste", methods=["GET"])
+def testar():
+    invalidar_emp_res()
+    return jsonify({"message": "Testado"})
+
+
+def multar_por_id_emprestimo(id_emprestimo):
+    print('\nmultar_por_id_emprestimo\n')
+
+    cur = con.cursor()
+
+    try:
+        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+        data_atual = cur.fetchone()[0]
+
+        # Adicionando multas ao banco de dados
+        cur.execute("""
+                    SELECT u.id_usuario, e.id_emprestimo
+                    FROM emprestimos e
+                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
+                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
+                    AND E.ID_EMPRESTIMO = ?
+                    AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
+                """, (id_emprestimo,))
+
+        tangoes = cur.fetchall()
+        print(f'tangões: {tangoes}')
+
+        cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
+            FROM VALORES
+            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES)
+        """)
+
+        valores = cur.fetchone()
+        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
+
+        valor_base = valores[0]
+        valor_ac = valores[1]
+
+        for tangao in tangoes:
+            cur.execute(
+                "INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
+                (tangao[0], tangao[1], valor_base, valor_ac))
+
+        con.commit()
+
+    except Exception:
+        raise
+    finally:
+        cur.close()
 
 
 def agendar_expiracao_codigo(id_codigo, minutos):
@@ -284,7 +475,8 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
                       <!-- Rodapé -->
                       <tr>
                         <td style="background-color: #1a1a1a; color: #ccc; text-align: center; padding: 20px; font-size: 12px;">
-                          © {datetime.datetime.now().year} {configuracoes()[4]} Todos os direitos reservados.<br />
+                          © {datetime.datetime.now().year} {configuracoes()[4]} Todos os direitos reservados. 
+                          Localizada em {configuracoes()[5]}.<br/>
                           Este é um e-mail automático, por favor não responda.
                         </td>
                       </tr>
@@ -325,6 +517,7 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 def formatar_timestamp(timestamp, horario=None, somente_data=None):
     # Definir o locale para português (Brasil)
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
+    timestamp = str(timestamp)
 
     if somente_data:
         data = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
@@ -351,24 +544,6 @@ def formatar_telefone(tel):
         return f"({ddd}) {primeira_parte}-{segunda_parte}"
     else:
         return 0
-
-
-# Rota para testes de e-mail
-@app.route('/email_teste', methods=['GET'])
-def enviar_emails_teste():
-    cur = con.cursor()
-    EMAIL_PARA_RECEBER_RESULTADOS = 'othaviohma2014@gmail.com'
-    cur.execute(
-        f"SELECT ID_USUARIO, NOME, EMAIL, SENHA FROM USUARIOS WHERE USUARIOS.EMAIL = '{EMAIL_PARA_RECEBER_RESULTADOS}'")
-    try:
-        multar_quem_precisa()
-
-        return jsonify({"message": "E-mail teste enviado com sucesso!"})
-    except Exception as e:
-        print("Erro na rota de testes")
-        raise
-    finally:
-        cur.close()
 
 
 @app.route('/configuracoes', methods=["GET"])
@@ -929,7 +1104,8 @@ def resetar_senha():
             return jsonify({
                 "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
-        cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ? ORDER BY ID_CODIGO DESC", (id_usuario,))
+        cur.execute("SELECT CODIGO FROM CODIGOS_RECUPERACAO WHERE ID_USUARIO = ? ORDER BY ID_CODIGO DESC",
+                    (id_usuario,))
         codigo = cur.fetchone()
         if not codigo:
             cur.close()
@@ -1063,7 +1239,7 @@ def usuario_put():
 
         if senha_nova == senha_antiga:
             cur.close()
-            return jsonify({"message": "A senha nova não pode ser igual a senha atual."}), 401
+            return jsonify({"message": "A senha nova não pode ser igual à senha atual."}), 401
 
         cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
         senha_armazenada = cur.fetchone()[0]
@@ -2154,7 +2330,7 @@ def alterar_disponibilidade_livro():
             nome = dados[0]
             email = dados[1]
 
-            assunto = f"{nome}, sua reserva foi cancelada"
+            assunto = f"{nome}, Sua Reserva Foi Cancelada"
             corpo = f"""
             <p style="font-size: 18px; line-height: 1.6; color: #333;">
                 Caro leitor,
@@ -2206,7 +2382,7 @@ def alterar_disponibilidade_livro():
             nome = dados[0]
             email = dados[1]
 
-            assunto = f"{nome}, seu empréstimo foi cancelado"
+            assunto = f"{nome}, Seu Empréstimo Foi Cancelado"
             corpo = f"""
             <p style="font-size: 18px; line-height: 1.6; color: #333;">
                 Caro leitor,
@@ -2337,8 +2513,8 @@ def devolver_emprestimo(id):
             """, (id_livro,))
             reserva_pendente = cur.fetchone()
 
-            data_validade = devolucao()
-            data_validade_format = data_validade.strftime('%Y-%m-%d %H:%M:%S')
+            data_validade = devolucao(data_validade=True)
+            data_validade_format = formatar_timestamp(data_validade)
 
             # Se houver, atualiza a mais antiga para "EM ESPERA"
             if reserva_pendente:
@@ -2363,11 +2539,14 @@ def devolver_emprestimo(id):
                     """, (id_reserva,))
                 livros_reservados = cur.fetchall()
 
-                mensagem_notificacao = 'Uma reserva sua foi alterada para "em espera", venha para a biblioteca para ser atendido.'
+                mensagem_notificacao = f"""Uma reserva sua foi alterada para "em espera",
+                 venha para a biblioteca até {data_validade_format} para ser atendido."""
                 criar_notificacao(usuario[0], mensagem_notificacao, "Aviso de Reserva")
 
                 corpo = f"""
-                        Uma reserva sua agora está em espera!</p>
+                        Uma reserva sua agora está em espera! 
+                        Compareça à biblioteca em até 
+                        <strong>{configuracoes()[2]} dias ({data_validade_format})</strong></p>
                         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros que você está tentando reservar:</strong></p>
                         <ul style="padding-left: 20px; font-size: 16px;">
                         """
@@ -2433,7 +2612,8 @@ def devolver_emprestimo(id):
         chave_pix = formatar_telefone(chave_pix)
         if chave_pix == 0:
             cur.close()
-            return jsonify({"message": "Erro ao recuperar chave PIX, edite ela nas configurações para um telefone válido."})
+            return jsonify(
+                {"message": "Erro ao recuperar chave PIX, edite ela nas configurações para um telefone válido."})
 
         # Gerando código de pix para enviar para o e-mail de quem tem multa
         pix = PixQrCode("Read Raccoon", chave_pix, "Birigui", str(valor))
@@ -2447,7 +2627,7 @@ def devolver_emprestimo(id):
         pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
         # print("Novo quick response code de pix criado")
 
-        assunto = f'Aviso de multa'
+        assunto = f'Aviso de Multa'
         corpo = f"""
                     Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. 
                     O valor é de R$ {valor2}.
@@ -2522,6 +2702,18 @@ def enviar_imagem_usuario():
     ]
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Formato de imagem não autorizado."
+                }
+            ), 401
+
     if imagem:
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
         os.makedirs(pasta_destino, exist_ok=True)
@@ -2628,6 +2820,32 @@ def deletar_reservas(id_reserva):
 
     # Mudar o status da Reserva
     cur.execute("UPDATE reservas SET STATUS = 'CANCELADA' WHERE id_reserva = ?", (id_reserva,))
+
+    cur.execute("SELECT ID_USUARIO, NOME, EMAIL FROM USUARIOS u "
+                "WHERE u.ID_USUARIO IN (SELECT r.ID_USUARIO FROM RESERVAS r WHERE r.ID_RESERVA = ?)", (id_reserva, ))
+
+    usuario = cur.fetchone()
+    cur.execute("""
+                SELECT TITULO, AUTOR FROM ACERVO a 
+                INNER JOIN ITENS_RESERVA ie ON ie.ID_LIVRO = a.ID_LIVRO 
+                WHERE ie.ID_RESERVA = ?""", (id_reserva,))
+    livros = cur.fetchall()
+
+    corpo = f"""
+            Uma reserva sua foi cancelada por um bibliotecário. 
+            </p>
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+            <strong>Livros que você estava tentando pegar:</strong></p>
+            <ul style="padding-left: 20px; font-size: 16px;">
+            """
+    for titulo, autor in livros:
+        corpo += f"<li>{titulo}, por {autor}</li>"
+    corpo += f"""
+            </ul>"""
+    enviar_email_async(usuario[2], "Cancelamento de Reserva", corpo)
+    criar_notificacao(usuario[0], f"""Uma reserva sua foi cancelada por um bibliotecário.
+    """, "Cancelamento de Reserva")
+
     con.commit()
     cur.close()
 
@@ -2885,6 +3103,7 @@ def avaliar_livro(id):
     return jsonify({
         "message": "Livro avaliado."
     }), 200
+
 
 @app.route("/avaliarlivro/<int:id>", methods=["DELETE"])
 def delete_avaliacao_livro(id):
@@ -4338,10 +4557,11 @@ def confirmar_reserva():
     nome = usuario[0]
     email = usuario[1]
 
-    assunto = nome + ", uma nota de reserva"
+    assunto = nome + ", Uma Nota de Reserva"
     corpo = f"""
             Você fez uma <strong>reserva</strong>!, por enquanto ela está pendente, 
-            quando ela for atendida nós te avisaremos para vir buscar os livros. Local: <strong>{configuracoes()[5]}</strong>.
+            quando os livros dela estiverem disponíveis 
+            nós te avisaremos para vir buscar. Local: <strong>{configuracoes()[5]}</strong>.
         </p>
         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros reservados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
@@ -4358,7 +4578,8 @@ def confirmar_reserva():
     enviar_email_async(email, assunto, corpo)
     criar_notificacao(id_usuario,
                       """Uma reserva sua foi feita e por enquanto está marcada pendente, 
-                      te avisaremos quando ela for atendida para você ir buscar na biblioteca.""", "Aviso de Reserva")
+                      te avisaremos quando os livros estiverem prontos para você ir buscar na biblioteca.
+                      """, "Aviso de Reserva")
 
     return jsonify({"message": "Reserva confirmada.", "id_reserva": reserva_id})
 
@@ -4380,14 +4601,14 @@ def adicionar_carrinho_emprestimo():
     cur = con.cursor()
 
     # Livros em carrinho:
-    cur.execute("SELECT COUNT(*) FROM CARRINHO_EMPRESTIMOS ce WHERE ce.ID_USUARIO = ?", (id_usuario, ))
+    cur.execute("SELECT COUNT(*) FROM CARRINHO_EMPRESTIMOS ce WHERE ce.ID_USUARIO = ?", (id_usuario,))
     qtd_carrinho = cur.fetchone()[0]
 
     # Livros em empréstimos ativos:
     cur.execute("""
         SELECT COUNT(*) FROM ITENS_EMPRESTIMO ie WHERE ie.ID_EMPRESTIMO IN
     (SELECT e.ID_EMPRESTIMO FROM EMPRESTIMOS e WHERE e.ID_USUARIO = ? AND e.STATUS IN ('ATIVO', 'PENDENTE') )
-    """, (id_usuario, ))
+    """, (id_usuario,))
     qtd_emprestada_por_usuario = cur.fetchone()[0]
 
     qtd_pega = qtd_carrinho + qtd_emprestada_por_usuario
@@ -4562,12 +4783,12 @@ def confirmar_emprestimo():
     if qtd_pega > limite_emp:
         cur.close()
         return jsonify({"message":
-        f"""Seu limite de livros em empréstimo ({limite_emp}) foi alcançado. Você possui {qtd_carrinho} no carrinho e 
+                            f"""Seu limite de livros em empréstimo ({limite_emp}) foi alcançado. Você possui {qtd_carrinho} no carrinho e 
         {qtd_emprestada_por_usuario} em empréstimos ativos ou pendentes.
 """}), 401
 
     # Cria o empréstimo — data_criacao já está com valor padrão no banco
-    data_validade = devolucao()
+    data_validade = devolucao(data_validade=True)
     cur.execute("INSERT INTO EMPRESTIMOS (ID_USUARIO, DATA_VALIDADE) VALUES (?, ?) RETURNING ID_EMPRESTIMO",
                 (id_usuario, data_validade,))
     emprestimo_id = cur.fetchone()[0]
@@ -4599,7 +4820,7 @@ def confirmar_emprestimo():
     usuario = cur.fetchone()
     nome, email = usuario
 
-    assunto = nome + ", sua solicitação de empréstimo foi registrada"
+    assunto = nome + ", Sua Solicitação de Empréstimo Foi Registrada"
     corpo = f"""
         Você fez uma <strong>solicitação de empréstimo</strong>!</p>
         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros emprestados:</strong></p>
@@ -5031,154 +5252,6 @@ def get_user_by_id(id):
     })
 
 
-def avisar_para_evitar_multas():
-    print('\navisar_para_evitar_multas\n')
-
-    cur = con.cursor()
-
-    try:
-
-        cur.execute("""
-            SELECT 
-                CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) AS dias_diferenca, u.EMAIL, u.NOME, e.DATA_DEVOLVER, u.ID_USUARIO
-                FROM 
-                EMPRESTIMOS e
-            INNER JOIN USUARIOS u ON e.ID_USUARIO = u.ID_USUARIO
-            WHERE 
-                STATUS = 'ATIVO'
-            AND CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 3
-                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 2
-                OR CAST(e.DATA_DEVOLVER - CURRENT_TIMESTAMP AS INTEGER) = 1
-        """)
-
-        dias_que_faltam = cur.fetchall()
-
-        for dias, email, nome, data_devolver, id_usuario in dias_que_faltam:
-            data_formatada = data_devolver.strftime("%d/%m/%Y")
-            corpo = f"""
-            <p style="font-size: 18px; line-height: 1.6; color: #333;">
-                Olá <strong>{nome}</strong>,
-            </p>
-
-            <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Este é um lembrete de que os livros de um emprestimo seu devem ser devolvidos até <strong>{data_formatada}</strong>.
-            </p>
-
-            <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Para evitar multas por atraso, certifique-se de realizar a devolução dentro do prazo. 
-                Caso os livros do empréstimo já tenham sido devolvidos, por favor, notifique um bibliotecário.
-            </p>
-
-            <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Este aviso é feito diariamente, por favor resolva isto em até <strong>{dias}</strong> dias.
-            </p>
-
-            <p style="font-size: 16px; line-height: 1.6; color: #444;">
-                Agradecemos sua atenção e colaboração.
-            </p>
-            """
-            enviar_email_async(email, "Lembrete: Devolução de Livro", corpo)
-            mensagem = f"Um empréstimo seu vence em {dias} dias, tome cuidado para evitar multas"
-            criar_notificacao(id_usuario, mensagem, "Lembrete: Devolução de Livro")
-        print("Função de aviso foi executada inteira")
-
-    except Exception:
-        raise
-    finally:
-        cur.close()
-
-
-def multar_quem_precisa():
-    print('\nmultar_quem_precisa\n')
-
-    cur = con.cursor()
-
-    try:
-        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
-        data_atual = cur.fetchone()[0]
-
-        # Adicionando multas ao banco de dados
-        cur.execute("""
-                    SELECT u.id_usuario, e.id_emprestimo
-                    FROM emprestimos e
-                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
-                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
-                    AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
-                """)
-
-        tangoes = cur.fetchall()
-        print(f'tangões: {tangoes}')
-
-        cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
-            FROM VALORES
-            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES)
-        """)
-
-        valores = cur.fetchone()
-        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
-
-        valor_base = valores[0]
-        valor_ac = valores[1]
-
-        for tangao in tangoes:
-            cur.execute(
-                "INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
-                (tangao[0], tangao[1], valor_base, valor_ac))
-
-        con.commit()
-
-    except Exception:
-        raise
-    finally:
-        cur.close()
-
-
-def multar_por_id_emprestimo(id_emprestimo):
-    print('\nmultar_por_id_emprestimo\n')
-
-    cur = con.cursor()
-
-    try:
-        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
-        data_atual = cur.fetchone()[0]
-
-        # Adicionando multas ao banco de dados
-        cur.execute("""
-                    SELECT u.id_usuario, e.id_emprestimo
-                    FROM emprestimos e
-                    INNER JOIN usuarios u ON e.id_usuario = u.id_usuario
-                    WHERE e.status = 'ATIVO' AND e.data_devolver < CURRENT_TIMESTAMP
-                    AND E.ID_EMPRESTIMO = ?
-                    AND E.ID_EMPRESTIMO NOT IN (SELECT M.ID_EMPRESTIMO FROM MULTAS M)
-                """, (id_emprestimo, ))
-
-        tangoes = cur.fetchall()
-        print(f'tangões: {tangoes}')
-
-        cur.execute("""SELECT VALOR_BASE, VALOR_ACRESCIMO
-            FROM VALORES
-            WHERE ID_VALOR = (SELECT MAX(ID_VALOR) FROM VALORES)
-        """)
-
-        valores = cur.fetchone()
-        print(f"Valores: {valores}, valor[0]: {valores[0]}, valor[1]: {valores[1]}")
-
-        valor_base = valores[0]
-        valor_ac = valores[1]
-
-        for tangao in tangoes:
-            cur.execute(
-                "INSERT INTO MULTAS (ID_USUARIO, ID_EMPRESTIMO, VALOR_BASE, VALOR_ACRESCIMO) VALUES (?, ?, ?, ?)",
-                (tangao[0], tangao[1], valor_base, valor_ac))
-
-        con.commit()
-
-    except Exception:
-        raise
-    finally:
-        cur.close()
-
-
 @app.route('/reserva/<int:id_reserva>/atender', methods=["PUT"])
 def atender_reserva(id_reserva):
     verificacao = informar_verificacao(2)  # Apenas bibliotecários
@@ -5189,9 +5262,8 @@ def atender_reserva(id_reserva):
 
     # Verifica se a reserva existe e está em espera
     cur.execute("""
-        SELECT r.id_usuario, i.id_livro 
+        SELECT r.id_usuario 
         FROM reservas r
-        join itens_reserva i on r.id_reserva = i.id_reserva
         WHERE r.id_reserva = ? AND r.status = 'EM ESPERA'
     """, (id_reserva,))
     dados = cur.fetchone()
@@ -5200,8 +5272,10 @@ def atender_reserva(id_reserva):
         cur.close()
         return jsonify({"message": "Reserva não encontrada ou já foi atendida/cancelada."}), 404
 
-    id_usuario, id_livro = dados
-    data_devolver = devolucao()  # Função que calcula a data de devolução
+    id_usuario = dados[0]
+    cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (id_reserva, ))
+    livros = cur.fetchall()
+    data_devolver = devolucao()
 
     # Atualiza status da reserva para ATENDIDA
     cur.execute("""
@@ -5212,17 +5286,18 @@ def atender_reserva(id_reserva):
 
     # Cria novo empréstimo
     cur.execute("""
-        INSERT INTO emprestimos (id_usuario, data_devolver, status) 
-        VALUES (?, ?, 'PENDENTE')
+        INSERT INTO emprestimos (id_usuario, data_devolver, status, DATA_RETIRADA) 
+        VALUES (?, ?, 'ATIVO', CURRENT_TIMESTAMP)
         RETURNING id_emprestimo
     """, (id_usuario, data_devolver))
     id_emprestimo = cur.fetchone()[0]
 
-    # Associa o livro ao empréstimo
-    cur.execute("""
-        INSERT INTO itens_emprestimo (id_emprestimo, id_livro) 
-        VALUES (?, ?)
-    """, (id_emprestimo, id_livro))
+    # Associa os livros ao empréstimo
+    for livro in livros:
+        cur.execute("""
+            INSERT INTO itens_emprestimo (id_emprestimo, id_livro) 
+            VALUES (?, ?)
+        """, (id_emprestimo, livro[0], ))
 
     cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
     nome, email = cur.fetchone()
@@ -5232,8 +5307,8 @@ def atender_reserva(id_reserva):
     cur.execute("""
     SELECT A.TITULO, A.AUTOR FROM ITENS_EMPRESTIMO IE 
     INNER JOIN ACERVO A ON A.ID_LIVRO = IE.ID_LIVRO 
-    WHERE ID_USUARIO = ?
-    """, (id_usuario,))
+    WHERE ID_RESERVA = ?
+    """, (id_reserva,))
 
     livros_emprestados = cur.fetchall()
 
@@ -5272,9 +5347,8 @@ def atender_emprestimo(id_emprestimo):
     cur = con.cursor()
 
     cur.execute("""
-        SELECT e.id_usuario, i.id_livro 
+        SELECT e.id_usuario 
         FROM emprestimos e
-        join itens_emprestimo i on e.id_emprestimo = i.id_emprestimo
         WHERE e.id_emprestimo = ? AND e.status = 'PENDENTE'
     """, (id_emprestimo,))
     dados = cur.fetchone()
@@ -5283,7 +5357,7 @@ def atender_emprestimo(id_emprestimo):
         cur.close()
         return jsonify({"message": "Emprestimo não encontrado ou já foi atendido/cancelado."}), 404
 
-    id_usuario, id_livro = dados
+    id_usuario = dados[0]
     data_devolver = devolucao()
     print(data_devolver)
 
