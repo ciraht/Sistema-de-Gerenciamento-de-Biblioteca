@@ -4227,7 +4227,6 @@ def usuario_put_id(id_usuario):
     senha_confirm = data.get('senhaConfirm')
     senha_antiga = data.get('senhaAntiga')
     tipo_usuario = data.get('tipo')
-    imagem = request.files.get('imagem')
 
     if not all([nome, email, telefone, endereco]):
         cur.close()
@@ -4292,18 +4291,6 @@ def usuario_put_id(id_usuario):
     if tipo_usuario:
         cur.execute("UPDATE USUARIOS SET tipo = ? WHERE id_usuario = ?", (tipo_usuario, id_usuario))
 
-    # Salvar imagem se fornecida
-    if imagem:
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
-        os.makedirs(pasta_destino, exist_ok=True)
-        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
-        imagem.save(imagem_path)
-    else:
-        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
-        os.makedirs(pasta_destino, exist_ok=True)
-        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
-        if os.path.exists(imagem_path):
-            os.remove(imagem_path)
 
     # Commit das alterações
     con.commit()
