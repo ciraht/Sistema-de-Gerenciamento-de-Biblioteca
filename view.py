@@ -4063,7 +4063,7 @@ def historico_emprestimos_pendentes(pagina):
 
     try:
         cur.execute("""
-            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_VALIDADE
             FROM ITENS_EMPRESTIMO I
             JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
             JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
@@ -4075,7 +4075,7 @@ def historico_emprestimos_pendentes(pagina):
         dados = dados[i - 1:f]
         return jsonify([{
             "id_livro": d[0], "titulo": d[1], "autor": d[2],
-            "id_emprestimo": d[3], "data_retirada": d[4], "data_devolver": d[5]
+            "id_emprestimo": d[3], "data_validade": d[4]
         } for d in dados])
     finally:
         cur.close()
@@ -5064,6 +5064,7 @@ def historico_emprestimos_ativos_por_usuario(id_usuario, pagina):
             JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
             JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
             WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+            AND STATUS = 'ATIVO'
             ORDER BY E.DATA_DEVOLVER ASC
         """, (id_usuario,))
         dados = cur.fetchall()
@@ -5087,7 +5088,7 @@ def historico_emprestimos_pendentes_por_id(id_usuario, pagina):
 
     try:
         cur.execute("""
-            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_VALIDADE
             FROM ITENS_EMPRESTIMO I
             JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
             JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
@@ -5104,8 +5105,7 @@ def historico_emprestimos_pendentes_por_id(id_usuario, pagina):
             "titulo": d[1],
             "autor": d[2],
             "id_emprestimo": d[3],
-            "data_retirada": d[4],
-            "data_devolver": d[5]
+            "data_validade": d[4]
         } for d in dados])
     finally:
         cur.close()
@@ -5188,25 +5188,37 @@ def historico_multas_pendentes_por_usuario(id_usuario, pagina):
         cur.close()
 
 @app.route("/historico/<int:id_usuario>/multas_concluidas/<int:pagina>", methods=["GET"])
-def historico_multas_concluidas_por_usuario(id_usuario, pagina):
-    verificacao = informar_verificacao(2)
+def historico_multas_concluidas_por_id(id_usuario, pagina):
+    verificacao = informar_verificacao()
     if verificacao:
         return verificacao
 
     cur = con.cursor()
+
     try:
+        cur.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
+        data_atual = cur.fetchone()[0]
+
         cur.execute("""
-            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO, M.VALOR_BASE, CAST(E.DATA_DEVOLVIDO AS DATE)
             FROM MULTAS M
+            JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
             WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
         """, (id_usuario,))
+
         dados = cur.fetchall()
+        multas = [d + (((data_atual - d[6]).days * d[2]) + d[1],) for d in dados]
         i, f = calcular_paginacao(pagina)
-        dados = dados[i - 1:f]
+        multas = multas[i - 1:f]
+
         return jsonify([{
-            "id_multa": d[0], "valor_base": d[1], "valor_acrescimo": d[2],
-            "id_emprestimo": d[3], "pago": d[4]
-        } for d in dados])
+            "id_multa": m[0],
+            "valor_base": m[1],
+            "valor_acrescimo": m[2],
+            "id_emprestimo": m[3],
+            "pago": m[4],
+            "total": m[7]
+        } for m in multas])
     finally:
         cur.close()
 
