@@ -2536,7 +2536,7 @@ def enviar_imagem_usuario():
 
     return jsonify(
         {
-            "message": "Imagem enviada com sucesso."
+            "message": "Imagem editada com sucesso."
         }
     ), 200
 
