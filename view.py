@@ -1541,8 +1541,8 @@ def get_livros_adm(pagina):
         livros.append(livro)
 
     cur.close()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     return jsonify(livros[inicial - 1:final]), 200
@@ -2992,8 +2992,8 @@ def pesquisar_livros(pagina):
     if conditions:
         sql += " AND " + " AND ".join(conditions)
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     sql += f" ORDER BY a.titulo ROWS {inicial} TO {final}"
@@ -3085,8 +3085,8 @@ def pesquisar_livros_biblio(pagina):
 
     sql += " ORDER BY a.titulo "
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     sql += f'ROWS {inicial} to {final}'
@@ -3228,8 +3228,8 @@ def relatorio_multas_pendentes_json(pagina):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     sql = """
@@ -3278,8 +3278,8 @@ def relatorio_multas_json(pagina):
     if verificacao:
         return verificacao
     cur = con.cursor()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
     sql = """
             SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
@@ -3315,8 +3315,8 @@ def relatorio_livros_faltando_json(pagina):
     if verificacao:
         return verificacao
     cur = con.cursor()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
     sql = """
     SELECT 
@@ -3397,8 +3397,8 @@ def relatorio_livros_json(pagina):
     if verificacao:
         return verificacao
     cur = con.cursor()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT 
@@ -3456,8 +3456,8 @@ def relatorio_usuarios_json(pagina):
     if verificacao:
         return verificacao
     cur = con.cursor()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT
@@ -4076,8 +4076,8 @@ def usuarios(pagina):
         listaUsuarios.append(users)
 
     cur.close()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     return jsonify(listaUsuarios[inicial - 1:final])
@@ -5469,8 +5469,8 @@ def get_all_multas(pagina):
     if verificacao:
         return verificacao
     cur = con.cursor()
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
     sql = """
         SELECT 
@@ -5550,8 +5550,8 @@ def pesquisar_usuarios(pagina):
 
     sql += " ORDER BY u.nome "
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     sql += f'ROWS {inicial} to {final}'
@@ -5762,8 +5762,8 @@ def get_all_movimentacoes(pagina):
 
     cur.close()
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     return jsonify(movimentacoes[inicial - 1:final])
@@ -5882,8 +5882,8 @@ def pesquisar_movimentacoes(pagina):
 
     cur.close()
 
-    inicial = pagina * 10 - 9 if pagina == 1 else pagina * 8 - 7
-    final = pagina * 8
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
     # print(f'ROWS {inicial} to {final}')
 
     return jsonify(movimentacoes[inicial - 1:final])
