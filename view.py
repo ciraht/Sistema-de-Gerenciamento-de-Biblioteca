@@ -1643,7 +1643,7 @@ def get_livros_novos():
                 FROM ACERVO a
                 where disponivel = true
                 ORDER BY a.id_livro desc
-                rows 1 to 10;
+                rows 1 to 15;
             """
                 )
 
@@ -1691,16 +1691,13 @@ def recomendar():
             LEFT JOIN LIVRO_TAGS lt ON lt.ID_LIVRO = a.ID_LIVRO
             LEFT JOIN TAGS t ON t.ID_TAG = lt.ID_TAG
             WHERE (SELECT SUM(VALOR_TOTAL) FROM AVALIACOES A WHERE A.ID_LIVRO = ac.ID_LIVRO)
-             / (SELECT COUNT(*) FROM AVALIACOES A WHERE A.ID_LIVRO = ac.ID_LIVRO) >= 3.5
+             / (SELECT COUNT(*) FROM AVALIACOES A WHERE A.ID_LIVRO = ac.ID_LIVRO) >= 3
             GROUP BY t.ID_TAG
         """)
         tags = cur.fetchall()
 
         # Extrai apenas os IDs das tags
         tags2 = [tag[0] for tag in tags]
-
-        if not tags2:
-            return jsonify({"tags": [], "livros": []})
 
         # Cria os placeholders dinamicamente
         placeholders = ', '.join(['?'] * len(tags2))
@@ -1723,10 +1720,31 @@ def recomendar():
             ORDER BY (SELECT SUM(VALOR_TOTAL) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO)
              / (SELECT COUNT(*) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO) DESC
         """
-
         cur.execute(query, tags2)
+        livros_recomendados1 = cur.fetchall()
+
+        cur.execute("""
+            SELECT DISTINCT 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL, 
+                a.DESCRICAO, 
+                a.idiomas, 
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            FULL JOIN AVALIACOES AV ON av.ID_LIVRO = A.ID_LIVRO
+            WHERE a.disponivel = true
+            ORDER BY (SELECT SUM(VALOR_TOTAL) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO)
+             / (SELECT COUNT(*) FROM AVALIACOES AV WHERE AV.ID_LIVRO = a.ID_LIVRO) DESC
+        """)
+        livros_extras = cur.fetchall()
+
+        ids_livros1 = []
         livros = []
-        for r in cur.fetchall():
+        for r in livros_recomendados1:
             cur.execute("""
                     SELECT t.id_tag, t.nome_tag
                     FROM LIVRO_TAGS lt
@@ -1751,13 +1769,43 @@ def recomendar():
                 'imagem': f"{r[0]}.jpeg"
             }
 
+            ids_livros1.append(r[0])
+            livros.append(livro)
+
+        for r in livros_extras:
+            if r[0] in ids_livros1:
+                continue
+            cur.execute("""
+                        SELECT t.id_tag, t.nome_tag
+                        FROM LIVRO_TAGS lt
+                        LEFT JOIN TAGS t ON lt.ID_TAG = t.ID_TAG
+                        WHERE lt.ID_LIVRO = ?
+                        """, (r[0],))
+            tags = cur.fetchall()
+
+            selected_tags = [{'id': tag[0], 'nome': tag[1]} for tag in tags]
+
+            livro = {
+                'id': r[0],
+                'titulo': r[1],
+                'autor': r[2],
+                'categoria': r[3],
+                'isbn': r[4],
+                'qtd_disponivel': r[5],
+                'descricao': r[6],
+                'idiomas': r[7],
+                'ano_publicacao': r[8],
+                'selectedTags': selected_tags,
+                'imagem': f"{r[0]}.jpeg"
+            }
+
             livros.append(livro)
 
         cur.close()
 
-        return jsonify({"livros": livros, "tags": tags2})
+        return jsonify({"livros": livros[0:15], "tags": tags2})
 
-    except Exception as e:
+    except Exception:
         print('Erro ao recomendar')
         raise
     finally:
@@ -1837,7 +1885,7 @@ def recomendar_com_base_em():
         livros.append(livro)
 
     cur.close()
-    return jsonify({"livroAnalisado": livro_analisado, "livros": livros, "visivel": True}), 200
+    return jsonify({"livroAnalisado": livro_analisado, "livros": livros[0:15], "visivel": True}), 200
 
 
 @app.route('/livros/minhalista', methods=["GET"])
@@ -4290,7 +4338,6 @@ def usuario_put_id(id_usuario):
     # Se o tipo do usuário for fornecido, atualizar o tipo
     if tipo_usuario:
         cur.execute("UPDATE USUARIOS SET tipo = ? WHERE id_usuario = ?", (tipo_usuario, id_usuario))
-
 
     # Commit das alterações
     con.commit()
