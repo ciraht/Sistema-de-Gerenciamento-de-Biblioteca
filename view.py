@@ -5819,7 +5819,10 @@ def pesquisar_movimentacoes(pagina):
         """
 
     if tipo_mov == "devolucao":
-        sql_emp += " AND E.DATA_DEVOLVIDO IS NOT NULL"
+        sql_emp += " AND E.STATUS = 'DEVOLVIDO'"
+
+    if tipo_mov == "emprestimo":
+        sql_emp += " AND E.STATUS IN ('PENDENTE', 'ATIVO', 'CANCELADO')"
 
     if pesquisa_titulo:
         sql_emp += f" AND A.TITULO CONTAINING '{pesquisa_titulo}'"
