@@ -6088,8 +6088,11 @@ def create_banner():
 def get_banners_in_use():
     cur = con.cursor()
     cur.execute(
-        "SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= "
-        "CURRENT_DATE OR DATAFIM IS NULL")
+        """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE
+        FROM BANNERS 
+        WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
+        ORDER BY INDICE ASC
+        """)
     response = cur.fetchall()
 
     banners = []
@@ -6114,7 +6117,10 @@ def get_banners_all():
 
     cur = con.cursor()
     cur.execute(
-        "SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS")
+        """
+        SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE FROM BANNERS
+        ORDER BY INDICE ASC
+        """)
     response = cur.fetchall()
 
     banners = []
@@ -6238,3 +6244,37 @@ def delete_banner_by_id(id):
     con.commit()
 
     return jsonify({"message": "Banner removido com sucesso"}), 200
+
+@app.route("/banners/position", methods=["PUT"])
+def update_banner_positions():
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    banners = data.get("banners")
+
+    if not banners or not isinstance(banners, list):
+        return jsonify({"error": "Formato de dados inválido"}), 400
+
+    cur = con.cursor()
+
+    try:
+        for banner in banners:
+            id_banner = banner.get("id_banner")
+            position = banner.get("position")
+            if id_banner is None or position is None:
+                continue  # Pula banners com dados incompletos
+
+            cur.execute(
+                'UPDATE BANNERS SET INDICE = ? WHERE ID_BANNER = ?',
+                (position, id_banner)
+            )
+
+        con.commit()
+        return jsonify({"message": "Posições dos banners atualizadas com sucesso"}), 200
+    except Exception as e:
+        con.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
