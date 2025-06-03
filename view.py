@@ -2752,6 +2752,64 @@ def enviar_imagem_usuario():
             "message": "Imagem editada com sucesso."
         }
     ), 200
+@app.route('/upload/usuario/<int:id_usuario>', methods=["POST"])
+def enviar_imagem_usuario_by_user(id_usuario):
+    verificacao = informar_verificacao()
+    if verificacao:
+        return verificacao
+
+    imagem = request.files.get("imagem")
+
+    # Verificações de Imagem
+    imagens = [
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".heif",
+        ".raw",
+        ".svg",
+        ".eps",
+        ".pdf",
+        ".ico",
+        ".heic",
+        ".xcf",
+        ".psd"
+    ]
+    if not os.path.exists(app.config['UPLOAD_FOLDER']):
+        os.makedirs(app.config['UPLOAD_FOLDER'])
+    if imagem:
+        valido = False
+        for ext in imagens:
+            if imagem.filename.endswith(ext):
+                valido = True
+        if not valido:
+            return jsonify(
+                {
+                    "message": "Formato de imagem não autorizado."
+                }
+            ), 401
+
+    if imagem:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        imagem.save(imagem_path)
+    else:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        if os.path.exists(imagem_path):
+            os.remove(imagem_path)
+
+    return jsonify(
+        {
+            "message": "Imagem editada com sucesso."
+        }
+    ), 200
 
 
 @app.route('/upload/livro', methods=["POST"])
@@ -4273,29 +4331,15 @@ def usuario_put_id(id_usuario):
     endereco = data.get('endereco')
     senha_nova = data.get('senha')
     senha_confirm = data.get('senhaConfirm')
-    senha_antiga = data.get('senhaAntiga')
     tipo_usuario = data.get('tipo')
 
     if not all([nome, email, telefone, endereco]):
         cur.close()
+        print(nome, email, endereco, telefone)
         return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha."}), 401
 
     # Lógica para alteração de senha
     if senha_nova or senha_confirm:
-        if not senha_antiga:
-            cur.close()
-            return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 401
-
-        if senha_nova == senha_antiga:
-            cur.close()
-            return jsonify({"message": "A senha nova não pode ser igual a senha atual."})
-
-        cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
-        senha_armazenada = cur.fetchone()[0]
-
-        if not check_password_hash(senha_armazenada, senha_antiga):
-            cur.close()
-            return jsonify({"message": "Senha antiga incorreta."}), 401
 
         if senha_nova != senha_confirm:
             cur.close()
