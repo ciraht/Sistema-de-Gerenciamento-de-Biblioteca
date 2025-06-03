@@ -2523,21 +2523,16 @@ def enviar_imagem_usuario():
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     if imagem:
-        valido = False
-        for ext in imagens:
-            if imagem.filename.endswith(ext):
-                valido = True
-        if not valido:
-            return jsonify(
-                {
-                    "message": "Formato de imagem não autorizado."
-                }
-            ), 401
-        nome_imagem = f"{id_usuario}.jpeg"
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
         os.makedirs(pasta_destino, exist_ok=True)
-        imagem_path = os.path.join(pasta_destino, nome_imagem)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
         imagem.save(imagem_path)
+    else:
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "usuarios")
+        os.makedirs(pasta_destino, exist_ok=True)
+        imagem_path = os.path.join(pasta_destino, f"{id_usuario}.jpeg")
+        if os.path.exists(imagem_path):
+            os.remove(imagem_path)
 
     return jsonify(
         {
@@ -4833,6 +4828,167 @@ def puxar_historico_by_id(id):
     cur.close()
 
     return jsonify(historico)
+
+@app.route("/historico/<int:id_usuario>/emprestimos_ativos/<int:pagina>", methods=["GET"])
+def historico_emprestimos_ativos_por_usuario(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL
+            ORDER BY E.DATA_DEVOLVER ASC
+        """, (id_usuario,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_livro": d[0], "titulo": d[1], "autor": d[2],
+            "id_emprestimo": d[3], "data_retirada": d[4], "data_devolver": d[5]
+        } for d in dados])
+    finally:
+        cur.close()
+
+
+@app.route("/historico/<int:id_usuario>/emprestimos_pendentes/<int:pagina>", methods=["GET"])
+def historico_emprestimos_pendentes_por_id(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+
+    try:
+        cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NULL AND E.STATUS = 'PENDENTE'
+            ORDER BY E.DATA_DEVOLVER ASC
+        """, (id_usuario,))
+
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+
+        return jsonify([{
+            "id_livro": d[0],
+            "titulo": d[1],
+            "autor": d[2],
+            "id_emprestimo": d[3],
+            "data_retirada": d[4],
+            "data_devolver": d[5]
+        } for d in dados])
+    finally:
+        cur.close()
+
+@app.route("/historico/<int:id_usuario>/emprestimos_concluidos/<int:pagina>", methods=["GET"])
+def historico_emprestimos_concluidos_por_usuario(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT I.ID_LIVRO, A.TITULO, A.AUTOR, E.ID_EMPRESTIMO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO
+            FROM ITENS_EMPRESTIMO I
+            JOIN EMPRESTIMOS E ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON I.ID_LIVRO = A.ID_LIVRO
+            WHERE E.ID_USUARIO = ? AND E.DATA_DEVOLVIDO IS NOT NULL
+            ORDER BY E.DATA_DEVOLVIDO DESC
+        """, (id_usuario,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_livro": d[0], "titulo": d[1], "autor": d[2],
+            "id_emprestimo": d[3], "data_retirada": d[4],
+            "data_devolver": d[5], "data_devolvido": d[6]
+        } for d in dados])
+    finally:
+        cur.close()
+
+@app.route("/historico/<int:id_usuario>/reservas_ativas/<int:pagina>", methods=["GET"])
+def historico_reservas_ativas_por_usuario(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT IR.ID_LIVRO, A.TITULO, A.AUTOR, R.ID_RESERVA, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS
+            FROM ITENS_RESERVA IR
+            JOIN RESERVAS R ON IR.ID_RESERVA = R.ID_RESERVA
+            JOIN ACERVO A ON IR.ID_LIVRO = A.ID_LIVRO
+            WHERE R.ID_USUARIO = ?
+            ORDER BY R.DATA_VALIDADE ASC
+        """, (id_usuario,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_livro": d[0], "titulo": d[1], "autor": d[2],
+            "id_reserva": d[3], "data_criacao": d[4],
+            "data_validade": d[5], "status": d[6]
+        } for d in dados])
+    finally:
+        cur.close()
+
+@app.route("/historico/<int:id_usuario>/multas_pendentes/<int:pagina>", methods=["GET"])
+def historico_multas_pendentes_por_usuario(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+            FROM MULTAS M
+            WHERE M.ID_USUARIO = ? AND M.PAGO = FALSE
+        """, (id_usuario,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_multa": d[0], "valor_base": d[1], "valor_acrescimo": d[2],
+            "id_emprestimo": d[3], "pago": d[4]
+        } for d in dados])
+    finally:
+        cur.close()
+
+@app.route("/historico/<int:id_usuario>/multas_concluidas/<int:pagina>", methods=["GET"])
+def historico_multas_concluidas_por_usuario(id_usuario, pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    cur = con.cursor()
+    try:
+        cur.execute("""
+            SELECT M.ID_MULTA, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.ID_EMPRESTIMO, M.PAGO
+            FROM MULTAS M
+            WHERE M.ID_USUARIO = ? AND M.PAGO = TRUE
+        """, (id_usuario,))
+        dados = cur.fetchall()
+        i, f = calcular_paginacao(pagina)
+        dados = dados[i - 1:f]
+        return jsonify([{
+            "id_multa": d[0], "valor_base": d[1], "valor_acrescimo": d[2],
+            "id_emprestimo": d[3], "pago": d[4]
+        } for d in dados])
+    finally:
+        cur.close()
+
 
 
 @app.route("/user/<int:id>", methods=["GET"])
