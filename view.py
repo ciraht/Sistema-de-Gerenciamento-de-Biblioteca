@@ -3352,6 +3352,60 @@ def relatorio_multas_pendentes_json(pagina):
     })
 
 
+@app.route('/relatorio/multaspendentes/<int:pagina>/pesquisa', methods=['POST'])
+def relatorio_pesquisa_multas_pendentes_json(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+
+    # print(f'ROWS {inicial} to {final}')
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    sql = """
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            AND pago = false AND (u.email CONTAINING ? OR u.nome CONTAINING ?)
+            ORDER BY m.DATA_ADICIONADO
+            """
+
+    sql += f' ROWS {inicial} to {final}'
+
+    cur = con.cursor()
+    cur.execute(sql, (pesquisa, pesquisa))
+
+    multas_pendentes = cur.fetchall()
+
+    # subtitulos = ["id", "titulo", "autor", "categoria", "isbn", "qtd_disponivel", "descricao", "idiomas",
+    # "ano_publicado"]
+
+    # livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            AND pago = false
+            ORDER BY m.DATA_ADICIONADO
+            """)
+    multas = cur.fetchall()
+    cur.close()
+
+    return jsonify({
+        "total": len(multas),
+        "multas_pendentes": multas_pendentes
+    })
+
+
 @app.route('/relatorio/multas/<int:pagina>', methods=['GET'])
 def relatorio_multas_json(pagina):
     verificacao = informar_verificacao(2)
@@ -3371,6 +3425,49 @@ def relatorio_multas_json(pagina):
             """
     sql += f' ROWS {inicial} TO {final}'
     cur.execute(sql)
+    multas = cur.fetchall()
+
+    cur.execute("""
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE
+            ORDER BY m.DATA_ADICIONADO
+            """)
+    multas2 = cur.fetchall()
+
+    return jsonify({
+        "total": len(multas2),
+        "multas": multas
+    })
+
+
+@app.route('/relatorio/multas/<int:pagina>/pesquisa', methods=['POST'])
+def relatorio_pesquisa_multas_json(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+    # print(f'ROWS {inicial} to {final}')
+    sql = """
+            SELECT u.email, u.telefone, u.nome, e.id_emprestimo, e.data_devolver, m.pago
+            FROM emprestimos e
+            JOIN usuarios u ON e.id_usuario = u.id_usuario
+            JOIN MULTAS m ON e.id_emprestimo = m.id_emprestimo
+            WHERE e.data_devolver < CURRENT_DATE AND (u.nome CONTAINING ? OR u.email CONTAINING ?)
+            ORDER BY m.DATA_ADICIONADO
+            """
+    sql += f' ROWS {inicial} TO {final}'
+    cur.execute(sql, (pesquisa, pesquisa, ))
     multas = cur.fetchall()
 
     cur.execute("""
@@ -3471,6 +3568,95 @@ def relatorio_livros_faltando_json(pagina):
     })
 
 
+@app.route('/relatorio/livros/faltando/<int:pagina>/pesquisa', methods=['POST'])
+def relatorio_peqsuisa_livros_faltando_json(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+    # print(f'ROWS {inicial} to {final}')
+    sql = """
+    SELECT 
+        a.id_livro, 
+        a.titulo, 
+        (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
+            WHERE IE.ID_LIVRO = a.ID_LIVRO
+            AND IE.ID_EMPRESTIMO IN
+            (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))) AS QTD_EMPRESTADA,
+        a.qtd_disponivel,
+        a.autor,
+        a.categoria, 
+        a.isbn,
+        a.ano_publicado,
+        LIST(u.nome) AS usuarios,
+        LIST(u.ID_USUARIO) AS id_usuarios
+    FROM acervo a
+    INNER JOIN itens_emprestimo ie ON a.id_livro = ie.id_livro
+    INNER JOIN emprestimos e ON ie.id_emprestimo = e.id_emprestimo
+    INNER JOIN usuarios u ON u.id_usuario = e.id_usuario
+    WHERE ie.ID_EMPRESTIMO IN (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO')) 
+    AND (a.TITULO CONTAINING ? OR a.AUTOR CONTAINING ?) 
+        """
+    sql += """GROUP BY 
+        a.id_livro, 
+        a.titulo, 
+        a.autor, 
+        a.categoria, 
+        a.isbn, 
+        a.qtd_disponivel,  
+        a.ano_publicado
+    ORDER BY a.id_livro"""
+
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql, (pesquisa, pesquisa, ))
+    livros = cur.fetchall()
+
+    subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "ano_publicado",
+                  "usuarios", "id_usuarios"]
+
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
+    cur.execute("""
+            SELECT 
+                a.id_livro, 
+                a.titulo, 
+                COUNT(ie.ID_LIVRO) AS QTD_EMPRESTADA,
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,
+                a.ANO_PUBLICADO
+            FROM ACERVO a
+            INNER JOIN ITENS_EMPRESTIMO ie ON a.ID_LIVRO = ie.ID_LIVRO
+            INNER JOIN EMPRESTIMOS e ON ie.ID_EMPRESTIMO = e.ID_EMPRESTIMO
+            WHERE e.STATUS IN ('ATIVO')
+            GROUP BY 
+                a.id_livro, 
+                a.titulo, 
+                a.autor, 
+                a.CATEGORIA, 
+                a.ISBN, 
+                a.QTD_DISPONIVEL,  
+                a.ANO_PUBLICADO
+            ORDER BY a.id_livro
+        """)
+    livros = cur.fetchall()
+    cur.close()
+
+    return jsonify({
+        "total": len(livros),
+        "livros": livros_json
+    })
+
+
 @app.route('/relatorio/livros/<int:pagina>', methods=['GET'])
 def relatorio_livros_json(pagina):
     verificacao = informar_verificacao(2)
@@ -3530,6 +3716,74 @@ def relatorio_livros_json(pagina):
     })
 
 
+@app.route('/relatorio/livros/<int:pagina>/pesquisa', methods=['POST'])
+def relatorio_pesquisa_livros_json(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+    # print(f'ROWS {inicial} to {final}')
+    sql = """
+        SELECT 
+            a.id_livro, 
+            a.titulo,
+            (SELECT COUNT(*) FROM ITENS_EMPRESTIMO IE
+            WHERE IE.ID_LIVRO = a.ID_LIVRO
+            AND IE.ID_EMPRESTIMO IN
+            (SELECT E.ID_EMPRESTIMO FROM EMPRESTIMOS E WHERE E.STATUS IN ('PENDENTE', 'ATIVO'))) AS QTD_EMPRESTADA,
+            a.QTD_DISPONIVEL, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a 
+        
+    """
+    sql += "WHERE (a.TITULO CONTAINING ? OR a.AUTOR CONTAINING ?)"
+
+    sql += " ORDER BY a.id_livro DESC"
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql, (pesquisa, pesquisa))
+    livros = cur.fetchall()
+
+    subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao", "idiomas",
+                  "ano_publicado"]
+
+    livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
+
+    cur.execute("""
+        SELECT 
+            a.id_livro, 
+            a.titulo, 
+            a.autor, 
+            a.CATEGORIA, 
+            a.ISBN, 
+            a.QTD_DISPONIVEL, 
+            a.DESCRICAO, 
+            a.idiomas, 
+            a.ANO_PUBLICADO
+        FROM ACERVO a
+        ORDER BY a.id_livro
+    """)
+    livros = cur.fetchall()
+    cur.close()
+
+    return jsonify({
+        "total": len(livros),
+        "livros": livros_json
+    })
+
+
 @app.route('/relatorio/usuarios/<int:pagina>', methods=['GET'])
 def relatorio_usuarios_json(pagina):
     verificacao = informar_verificacao(2)
@@ -3551,6 +3805,57 @@ def relatorio_usuarios_json(pagina):
     """
     sql += f' ROWS {inicial} to {final}'
     cur.execute(sql)
+    usuarios = cur.fetchall()
+
+    subtitulos = ["id", "nome", "email", "telefone", "endereco"]
+    usuarios_json = [dict(zip(subtitulos, u)) for u in usuarios]
+
+    cur.execute("""
+        SELECT
+            id_usuario, 
+            nome, 
+            email, 
+            telefone, 
+            endereco
+        FROM USUARIOS
+        ORDER BY id_usuario
+    """)
+    usuarios = cur.fetchall()
+    cur.close()
+
+    return jsonify({
+        "total": len(usuarios),
+        "usuarios": usuarios_json
+    })
+
+
+@app.route('/relatorio/usuarios/<int:pagina>/pesquisa', methods=['POST'])
+def relatorio_pesquisa_usuarios_json(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+    # print(f'ROWS {inicial} to {final}')
+    sql = """
+        SELECT
+            u.id_usuario, 
+            u.nome, 
+            u.email, 
+            u.telefone, 
+            u.endereco
+        FROM USUARIOS u
+        WHERE (u.nome CONTAINING ? OR u.EMAIL CONTAINING ?)
+    """
+    sql += f' ORDER BY id_usuario ROWS {inicial} to {final}'
+    cur.execute(sql, (pesquisa, pesquisa, ))
     usuarios = cur.fetchall()
 
     subtitulos = ["id", "nome", "email", "telefone", "endereco"]
