@@ -20,8 +20,8 @@ senha_secreta = app.config['SECRET_KEY']
 
 def configuracoes():
     cur = con.cursor()
-    # ID_REGISTRO, DIAS_VALIDADE_EMPRESTIMO, DIAS_VALIDADE_EMPRESTIMO_BUSCAR, CHAVE_PIX
-    # RAZAO_SOCIAL, ENDERECO, TELEFONE, EMAIL, LIMITE_LIVROS_EMPRESTIMO, LIMITE_LIVROS_RESERVA, DATA_ADICIONADO
+    # ID_REGISTRO, DIAS_VALIDADE_EMPRESTIMO, DIAS_VALIDADE_EMPRESTIMO_BUSCAR, CHAVE_PIX, RAZAO_SOCIAL,
+    # ENDERECO, TELEFONE, EMAIL, LIMITE_LIVROS_EMPRESTIMO, LIMITE_LIVROS_RESERVA, APELIDO_EMAIL, DATA_ADICIONADO
     cur.execute("""
                     SELECT *
                     FROM CONFIGURACOES
@@ -34,9 +34,14 @@ def configuracoes():
 
 def devolucao(data_validade=False):
     # Retorna a data de devolução do livro, adicionando o período de empréstimo à data atual.
-    dias_emprestimo = configuracoes()[1]
+
+    conf = configuracoes()
+    if not conf:
+        return datetime.datetime.now() + datetime.timedelta(days=7)
+
+    dias_emprestimo = conf[1]
     if data_validade:
-        dias_emprestimo = configuracoes()[2]
+        dias_emprestimo = conf[2]
     data_devolucao = datetime.datetime.now() + datetime.timedelta(days=dias_emprestimo)
     return data_devolucao
 
@@ -438,8 +443,12 @@ def criar_notificacao(id_usuario, mensagem, titulo):
 
 def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
     def enviar_email(destinatario, assunto, corpo, qr_code=None):
+        conf = configuracoes()
+        if not conf:
+            conf = [0, 1, 2, 3, "Empresa", "Local", 6, 7, 8, 9, "Apelido_email"]
+
         msg = EmailMessage()
-        msg['From'] = config.MAIL_USERNAME
+        msg['From'] = conf[10]
         msg['To'] = destinatario
         msg['Subject'] = assunto
 
@@ -472,8 +481,8 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
                       <!-- Rodapé -->
                       <tr>
                         <td style="background-color: #1a1a1a; color: #ccc; text-align: center; padding: 20px; font-size: 12px;">
-                          © {datetime.datetime.now().year} {configuracoes()[4]} Todos os direitos reservados. 
-                          Localizada em {configuracoes()[5]}.<br/>
+                          © {datetime.datetime.now().year} {conf[4]} Todos os direitos reservados. 
+                          Localizada em {conf[5]}.<br/>
                           Este é um e-mail automático, por favor não responda.
                         </td>
                       </tr>
@@ -590,8 +599,10 @@ def criar_verificacoes():
     email = data.get('email')
     limite_emp = data.get('limite_emprestimo')
     limite_res = data.get('limite_reserva')
+    apelido_email = data.get('apelido_email')
 
-    if not all([dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp, limite_res]):
+    if not all([dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone,
+                email, limite_emp, limite_res, apelido_email]):
         return jsonify({"message": "Todos os campos são obrigatórios"}), 400
 
     try:
@@ -626,9 +637,11 @@ def criar_verificacoes():
                 TELEFONE,
                 EMAIL,
                 LIMITE_LIVROS_EMPRESTIMO,
-                LIMITE_LIVROS_RESERVA)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp, limite_res))
+                LIMITE_LIVROS_RESERVA,
+                APELIDO_EMAIL)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp,
+              limite_res, str(apelido_email)))
     finally:
         cur.close()
         con.commit()
@@ -2494,6 +2507,10 @@ def devolver_emprestimo(id):
     verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
+    conf = configuracoes()
+    if not conf:
+        return jsonify({"message": """Erro ao recuperar recuperações globais, 
+            um administrador precisa criar novas configurações"""}), 401
 
     cur = con.cursor()
 
@@ -2573,7 +2590,7 @@ def devolver_emprestimo(id):
                 corpo = f"""
                         Uma reserva sua agora está em espera! 
                         Compareça à biblioteca em até 
-                        <strong>{configuracoes()[2]} dias ({data_validade_format})</strong></p>
+                        <strong>{conf[2]} dias ({data_validade_format})</strong></p>
                         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros que você está tentando reservar:</strong></p>
                         <ul style="padding-left: 20px; font-size: 16px;">
                         """
@@ -2583,7 +2600,7 @@ def devolver_emprestimo(id):
                 </ul>
                 <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">Agora,
                  vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar),
-                  a biblioteca está em <strong>{configuracoes()[5]}</strong>.</p>"""
+                  a biblioteca está em <strong>{conf[5]}</strong>.</p>"""
                 enviar_email_async(usuario[2], "Aviso de reserva", corpo)
 
     # Verificar se este empréstimo possui multas criadas pela função multar_quem_precisa e enviar e-mail para a pessoa
@@ -2630,7 +2647,7 @@ def devolver_emprestimo(id):
         nome = tangao[1]
         email = tangao[2]
 
-        chave_pix = configuracoes()[3]
+        chave_pix = conf[3]
         chave_pix = formatar_telefone(chave_pix)
         if chave_pix == 0:
             cur.close()
@@ -2652,7 +2669,8 @@ def devolver_emprestimo(id):
         assunto = f'Aviso de Multa'
         corpo = f"""
                     Olá {nome}, você possui uma multa por não entregar um empréstimo a tempo. 
-                    O valor é de R$ {valor2}.
+                    O valor é de <strong>R$ {valor2}</strong>, pague pelo <i>QR Code</i> 
+                    anexado ou contate um bibliotecário para outros métodos de pagamento.
                 """
         enviar_email_async(email, assunto, corpo, f"{valor}.png")
         criar_notificacao(tangao[0], 'Você possui uma multa por entregar um empréstimo com atraso.', 'Aviso de Multa')
@@ -4396,13 +4414,17 @@ def adicionar_carrinho_reserva():
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+    conf = configuracoes()
+    if not conf:
+        return jsonify({"message": """Erro ao recuperar recuperações globais, 
+                um administrador precisa criar novas configurações"""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
 
     data = request.json
     id_livro = data.get("id_livro")
-    limite_res = configuracoes()[9]
+    limite_res = conf[9]
 
     cur = con.cursor()
 
@@ -4542,6 +4564,11 @@ def confirmar_reserva():
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+
+    conf = configuracoes()
+    if not conf:
+        return jsonify({"message": """Erro ao recuperar recuperações globais, 
+            um administrador precisa criar novas configurações"""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4602,7 +4629,7 @@ def confirmar_reserva():
     corpo = f"""
             Você fez uma <strong>reserva</strong>!, por enquanto ela está pendente, 
             quando os livros dela estiverem disponíveis 
-            nós te avisaremos para vir buscar. Local: <strong>{configuracoes()[5]}</strong>.
+            nós te avisaremos para vir buscar. Local: <strong>{conf[5]}</strong>.
         </p>
         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros reservados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
@@ -4631,13 +4658,17 @@ def adicionar_carrinho_emprestimo():
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+    conf = configuracoes()
+    if not conf:
+        return jsonify({"message": """Erro ao recuperar recuperações globais, 
+            um administrador precisa criar novas configurações"""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
     data = request.json
     id_livro = data.get("id_livro")
 
-    limite_emp = configuracoes()[8]
+    limite_emp = conf[8]
 
     cur = con.cursor()
 
@@ -4764,6 +4795,10 @@ def confirmar_emprestimo():
     verificacao = informar_verificacao()
     if verificacao:
         return verificacao
+    conf = configuracoes()
+    if not conf:
+        return jsonify({"message": """Erro ao recuperar recuperações globais, 
+            um administrador precisa criar novas configurações"""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4808,7 +4843,7 @@ def confirmar_emprestimo():
         cur.close()
         return jsonify({"message": "Algum dos livros no carrinho está reservado. Empréstimo bloqueado."}), 401
 
-    limite_emp = configuracoes()[8]
+    limite_emp = conf[8]
     # Livros em carrinho:
     cur.execute("SELECT COUNT(*) FROM CARRINHO_EMPRESTIMOS ce WHERE ce.ID_USUARIO = ?", (id_usuario,))
     qtd_carrinho = cur.fetchone()[0]
@@ -4872,7 +4907,7 @@ def confirmar_emprestimo():
     corpo += f"""</ul>
         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
             Por enquanto esse empréstimo está marcado como pendente, 
-            vá até a biblioteca para ser atendido e retirar os livros, em <strong>{configuracoes()[5]}</strong>.
+            vá até a biblioteca para ser atendido e retirar os livros, em <strong>{conf[5]}</strong>.
         </p>"""
 
     enviar_email_async(email, assunto, corpo)
