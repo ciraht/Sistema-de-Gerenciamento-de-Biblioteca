@@ -1231,6 +1231,9 @@ def usuario_put():
     senha_antiga = data.get('senhaAntiga')
     imagem = request.files.get('imagem')
 
+    if len(telefone) > 11:
+        return jsonify({"message": "o telefone deve ter no máximo 11 digitos com o DDD"}), 401
+
     if not all([nome, email, telefone, endereco]):
         cur.close()
         return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha."}), 401
