@@ -5724,6 +5724,7 @@ def get_all_movimentacoes(pagina):
             E.ID_EMPRESTIMO, 
             U.NOME, 
             LIST(A.TITULO, ', ') AS TITULOS,
+            LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
             E.DATA_CRIACAO, 
             E.DATA_RETIRADA, 
             E.DATA_DEVOLVER, 
@@ -5745,6 +5746,7 @@ def get_all_movimentacoes(pagina):
             R.ID_RESERVA, 
             U.NOME, 
             LIST(A.TITULO, ', ') AS TITULOS,
+            LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
             R.DATA_CRIACAO, 
             R.DATA_VALIDADE, 
             R.STATUS
@@ -5765,14 +5767,15 @@ def get_all_movimentacoes(pagina):
             'id': e[0],
             'usuario': e[1],
             'titulo': e[2],
-            'data_evento': e[3],  # Para ordenação
-            'data_evento_str': e[3].isoformat(timespec='minutes') if e[3] else None,
-            'data_criacao': e[3].isoformat(timespec='minutes') if e[3] else None,
-            'data_retirada': e[4].isoformat(timespec='minutes') if e[4] else None,
-            'data_devolver': e[5].isoformat(timespec='minutes') if e[5] else None,
-            'data_devolvida': e[6].isoformat(timespec='minutes') if e[6] else None,
-            'data_validade': e[7].isoformat(timespec='minutes') if e[7] else None,
-            'status': e[8]
+            'id_livro': e[3],
+            'data_evento': e[4],  # Para ordenação
+            'data_evento_str': e[4].isoformat(timespec='minutes') if e[4] else None,
+            'data_criacao': e[4].isoformat(timespec='minutes') if e[4] else None,
+            'data_retirada': e[5].isoformat(timespec='minutes') if e[5] else None,
+            'data_devolver': e[6].isoformat(timespec='minutes') if e[6] else None,
+            'data_devolvida': e[7].isoformat(timespec='minutes') if e[7] else None,
+            'data_validade': e[8].isoformat(timespec='minutes') if e[8] else None,
+            'status': e[9]
         })
 
     for r in reservas:
@@ -5781,11 +5784,12 @@ def get_all_movimentacoes(pagina):
             'id': r[0],
             'usuario': r[1],
             'titulo': r[2],
-            'data_evento': r[3],  # Para ordenação
-            'data_evento_str': r[3].isoformat(timespec='minutes') if r[3] else None,
-            'data_criacao': r[3].isoformat(timespec='minutes') if r[3] else None,
-            'data_validade': r[4].isoformat(timespec='minutes') if r[4] else None,
-            'status': r[5]
+            'id_livro': r[3],
+            'data_evento': r[4],  # Para ordenação
+            'data_evento_str': r[4].isoformat(timespec='minutes') if r[4] else None,
+            'data_criacao': r[4].isoformat(timespec='minutes') if r[4] else None,
+            'data_validade': r[5].isoformat(timespec='minutes') if r[5] else None,
+            'status': r[6]
         })
 
     # Ordenar pela data_evento (mais recente primeiro)
