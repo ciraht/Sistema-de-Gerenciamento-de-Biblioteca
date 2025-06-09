@@ -5303,6 +5303,7 @@ def historico_reservas_ativas_por_usuario(id_usuario, pagina):
     finally:
         cur.close()
 
+
 @app.route("/historico/<int:id_usuario>/multas_pendentes/<int:pagina>", methods=["GET"])
 def historico_multas_pendentes_por_usuario(id_usuario, pagina):
     verificacao = informar_verificacao(2)
@@ -5325,6 +5326,7 @@ def historico_multas_pendentes_por_usuario(id_usuario, pagina):
         } for d in dados])
     finally:
         cur.close()
+
 
 @app.route("/historico/<int:id_usuario>/multas_concluidas/<int:pagina>", methods=["GET"])
 def historico_multas_concluidas_por_id(id_usuario, pagina):
@@ -5592,6 +5594,61 @@ def get_all_multas(pagina):
     """
     sql += f' ROWS {inicial} to {final}'
     cur.execute(sql)
+    multas = cur.fetchall()
+
+    return jsonify([
+        {
+            "id_multa": m[0],
+            "id_usuario": m[1],
+            "nome": m[2],
+            "email": m[3],
+            "id_emprestimo": m[4],
+            "valor_base": m[5],
+            "valor_acrescimo": m[6],
+            "pago": bool(m[7]),
+            "titulos": m[8]
+        }
+        for m in multas
+    ])
+
+
+@app.route("/multas/<int:pagina>/pesquisa", methods=["POST"])
+def pesquisar_multas(pagina):
+    verificacao = informar_verificacao(2)
+    if verificacao:
+        return verificacao
+    data = request.get_json()
+    pesquisa = data.get("pesquisa", "").strip()
+    if not pesquisa:
+        return jsonify({"message": "Nada pesquisado."}), 400
+
+    cur = con.cursor()
+    inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
+    final = pagina * 12
+    # print(f'ROWS {inicial} to {final}')
+    sql = """
+            SELECT 
+                M.ID_MULTA,
+                M.ID_USUARIO,
+                U.NOME,
+                U.EMAIL,
+                M.ID_EMPRESTIMO,
+                M.VALOR_BASE,
+                M.VALOR_ACRESCIMO,
+                M.PAGO,
+                LIST(A.TITULO, ', ') AS TITULOS
+            FROM MULTAS M
+            JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
+            JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
+            JOIN ITENS_EMPRESTIMO I ON I.ID_EMPRESTIMO = E.ID_EMPRESTIMO
+            JOIN ACERVO A ON A.ID_LIVRO = I.ID_LIVRO
+            WHERE (u.nome CONTAINING ? OR u.email CONTAINING ?)
+            GROUP BY 
+                M.ID_MULTA, M.ID_USUARIO, U.NOME, U.EMAIL, 
+                M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
+        """
+    sql += f' ROWS {inicial} to {final}'
+    cur.execute(sql, (pesquisa, pesquisa, ))
     multas = cur.fetchall()
 
     return jsonify([
