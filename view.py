@@ -19,17 +19,22 @@ senha_secreta = app.config['SECRET_KEY']
 
 
 def configuracoes():
-    cur = con.cursor()
+    cur1 = con.cursor()
     # ID_REGISTRO, DIAS_VALIDADE_EMPRESTIMO, DIAS_VALIDADE_EMPRESTIMO_BUSCAR, CHAVE_PIX, RAZAO_SOCIAL,
     # ENDERECO, TELEFONE, EMAIL, LIMITE_LIVROS_EMPRESTIMO, LIMITE_LIVROS_RESERVA, APELIDO_EMAIL, DATA_ADICIONADO
-    cur.execute("""
-                    SELECT *
-                    FROM CONFIGURACOES
-                    WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
-                    """)
-    config_mais_recente = cur.fetchone()
-    cur.close()
-    return config_mais_recente
+    try:
+        cur1.execute("""
+                        SELECT *
+                        FROM CONFIGURACOES
+                        WHERE ID_REGISTRO = (SELECT MAX(ID_REGISTRO) FROM CONFIGURACOES)
+                        """)
+        config_mais_recente = cur1.fetchone()
+        return config_mais_recente
+    except Exception:
+        print("Erro na função configuracoes")
+        raise
+    finally:
+        cur1.close()
 
 
 def devolucao(data_validade=False):
@@ -442,8 +447,10 @@ def criar_notificacao(id_usuario, mensagem, titulo):
 
 
 def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
-    def enviar_email(destinatario, assunto, corpo, qr_code=None):
-        conf = configuracoes()
+    conf = configuracoes()
+
+    def enviar_email(destinatario, assunto, corpo, qr_code=None, conf=None):
+
         if not conf:
             conf = [0, 1, 2, 3, "Empresa", "Local", 6, 7, 8, 9, "Apelido_email"]
 
@@ -517,17 +524,20 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
             print(f"Erro ao enviar e-mail: {e} \nTrazendo mensagem de erro completa")
             raise
 
-    Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code), daemon=True).start()
+    Thread(target=enviar_email, args=(destinatario, assunto, corpo, qr_code, conf), daemon=True).start()
 
 
 def formatar_timestamp(timestamp, horario=None, somente_data=None):
     # Definir o locale para português (Brasil)
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
-    timestamp = str(timestamp)
 
     if somente_data:
+        timestamp = timestamp.date()
+        timestamp = str(timestamp)
         data = datetime.datetime.strptime(timestamp, "%Y-%m-%d")
-        return data.strftime("%d de %B de %Y")
+        return data.strftime("%d/%m/%Y")
+
+    timestamp = str(timestamp)
 
     # Converter o timestamp para objeto datetime
     data = datetime.datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
@@ -2513,7 +2523,7 @@ def devolver_emprestimo(id):
     conf = configuracoes()
     if not conf:
         return jsonify({"message": """Erro ao recuperar recuperações globais, 
-            um administrador precisa criar novas configurações"""}), 401
+            um administrador precisa criar novas configurações."""}), 401
 
     cur = con.cursor()
 
@@ -2547,6 +2557,7 @@ def devolver_emprestimo(id):
     """, (id,))
     livros = cur.fetchall()
     if livros:
+        reservas = []
         for livro in livros:
             id_livro = livro[0]
 
@@ -2559,52 +2570,68 @@ def devolver_emprestimo(id):
                 ORDER BY data_CRIACAO ASC
             """, (id_livro,))
             reserva_pendente = cur.fetchone()
+            if reserva_pendente:
+                if reserva_pendente[0] not in reservas:
+                    reservas.append(reserva_pendente[0])
+
+        for reserva in reservas:
+            # Verificar se todos os livros da reserva estão disponíveis
+            cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (reserva, ))
+            livros_da_reserva = cur.fetchall()
+            print(f"livros: {livros}, livros_da_reserva: {livros_da_reserva}")
+            passa = True
+            if livros_da_reserva:
+                for livro in livros_da_reserva:
+                    if livro not in livros:
+                        passa = False
+            if not passa:
+                continue
 
             data_validade = devolucao(data_validade=True)
             data_validade_format = formatar_timestamp(data_validade)
 
             # Se houver, atualiza a mais antiga para "EM ESPERA"
-            if reserva_pendente:
-                id_reserva = reserva_pendente[0]
-                cur.execute("""
-                    UPDATE reservas
-                    SET status = 'EM ESPERA', data_validade = ?
-                    WHERE id_reserva = ?
-                """, (data_validade, id_reserva))
+            cur.execute("""
+                UPDATE reservas
+                SET status = 'EM ESPERA', data_validade = ?
+                WHERE id_reserva = ?
+            """, (data_validade, reserva))
 
-                # Enviando e-mail e notificação para a pessoa que teve a sua reserva editada
-                cur.execute("""
-                    SELECT ID_USUARIO, NOME, EMAIL FROM USUARIOS 
-                    WHERE ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA = ?)
-                """, (id_reserva,))
-                usuario = cur.fetchone()
+            # Enviando e-mail e notificação para a pessoa que teve a sua reserva editada
+            cur.execute("""
+                SELECT ID_USUARIO, NOME, EMAIL FROM USUARIOS 
+                WHERE ID_USUARIO IN (SELECT ID_USUARIO FROM RESERVAS WHERE ID_RESERVA = ?)
+            """, (reserva,))
+            usuario = cur.fetchone()
 
-                cur.execute("""
-                    SELECT TITULO, AUTOR FROM ACERVO a
-                    INNER JOIN ITENS_RESERVA ir ON a.ID_LIVRO = ir.ID_LIVRO
-                    WHERE ir.ID_LIVRO IN (SELECT ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA = ?)
-                    """, (id_reserva,))
-                livros_reservados = cur.fetchall()
+            cur.execute("""
+                SELECT DISTINCT a.TITULO, a.AUTOR FROM ACERVO a
+                INNER JOIN ITENS_RESERVA ir ON ir.ID_LIVRO = a.ID_LIVRO
+                WHERE ir.ID_LIVRO IN (SELECT ID_LIVRO FROM ITENS_RESERVA ir WHERE ir.ID_RESERVA = ?)
+                """, (reserva,))
+            livros_reservados = cur.fetchall()
+            print(f"livros_reservados: {livros_reservados}, reserva: {reserva}")
 
-                mensagem_notificacao = f"""Uma reserva sua foi alterada para "em espera",
-                 venha para a biblioteca até {data_validade_format} para ser atendido."""
-                criar_notificacao(usuario[0], mensagem_notificacao, "Aviso de Reserva")
+            mensagem_notificacao = f"""Uma reserva sua foi alterada para "em espera",
+             venha para a biblioteca até {data_validade_format} para ser atendido."""
+            criar_notificacao(usuario[0], mensagem_notificacao, "Aviso de Reserva")
 
-                corpo = f"""
-                        Uma reserva sua agora está em espera! 
-                        Compareça à biblioteca em até 
-                        <strong>{conf[2]} dias ({data_validade_format})</strong></p>
-                        <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros que você está tentando reservar:</strong></p>
-                        <ul style="padding-left: 20px; font-size: 16px;">
-                        """
-                for titulo, autor in livros_reservados:
-                    corpo += f"<li>{titulo}, por {autor}</li>"
-                corpo += f"""
-                </ul>
-                <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">Agora,
-                 vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar),
-                  a biblioteca está em <strong>{conf[5]}</strong>.</p>"""
-                enviar_email_async(usuario[2], "Aviso de reserva", corpo)
+            corpo = f"""
+                    Uma reserva sua agora está em espera! 
+                    Compareça à biblioteca em até 
+                    <strong>{conf[2]} dias ({data_validade_format})</strong></p>
+                    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;"><strong>Livros que você está tentando reservar:</strong></p>
+                    <ul style="padding-left: 20px; font-size: 16px;">
+                    """
+            for titulo, autor in livros_reservados:
+                corpo += f"<li>{titulo}, por {autor}</li>"
+            corpo += f"""
+            </ul>
+            <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">Agora,
+             vá até a biblioteca para realizar o empréstimo e retirar os livros (ou cancelar),
+              a biblioteca está em <strong>{conf[5]}</strong>.</p>"""
+            enviar_email_async(usuario[2], "Aviso de Reserva", corpo)
+        print(reservas)
 
     # Verificar se este empréstimo possui multas criadas pela função multar_quem_precisa e enviar e-mail para a pessoa
     cur.execute("""
@@ -2677,6 +2704,38 @@ def devolver_emprestimo(id):
                 """
         enviar_email_async(email, assunto, corpo, f"{valor}.png")
         criar_notificacao(tangao[0], 'Você possui uma multa por entregar um empréstimo com atraso.', 'Aviso de Multa')
+
+    else:
+        cur.execute("""
+                    SELECT DISTINCT a.TITULO, a.AUTOR FROM ACERVO a
+                    INNER JOIN ITENS_EMPRESTIMO ir ON ir.ID_LIVRO = a.ID_LIVRO
+                    WHERE ir.ID_EMPRESTIMO = ?
+                    """, (id,))
+        livros_devolvidos = cur.fetchall()
+        cur.execute("""SELECT ID_USUARIO, DATA_DEVOLVER, DATA_DEVOLVIDO, DATA_RETIRADA 
+                        FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?""", (id,))
+        emprestimo = cur.fetchone()
+        cur.execute("""SELECT EMAIL FROM USUARIOS 
+                    WHERE ID_USUARIO IN (SELECT ID_USUARIO FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?)
+                    """, (id, ))
+        email = cur.fetchone()[0]
+
+        corpo = f"""
+                Este é um recibo de devolução de empréstimo. <br> <br>
+                Data de retirada: {formatar_timestamp(emprestimo[3], somente_data=True)} <br>
+                Data que você devolveu: {formatar_timestamp(emprestimo[2], somente_data=True)} <br>
+                Data limite de devolução: {formatar_timestamp(emprestimo[1], somente_data=True)} <br> <br>
+                <strong>Livros que você devolveu:</strong></p>
+                <ul style="padding-left: 20px; font-size: 16px;">
+                            """
+        for titulo, autor in livros_devolvidos:
+            corpo += f"<li>{titulo}, por {autor}</li>"
+        corpo += "</ul>"
+
+        criar_notificacao(emprestimo[0], """
+            Uma devolução de empréstimo sua foi recebida com sucesso.
+            """, "Recibo de Devolução")
+        enviar_email_async(email, "Recibo de Devolução", corpo)
 
     con.commit()
     cur.close()
@@ -4420,7 +4479,7 @@ def adicionar_carrinho_reserva():
     conf = configuracoes()
     if not conf:
         return jsonify({"message": """Erro ao recuperar recuperações globais, 
-                um administrador precisa criar novas configurações"""}), 401
+                um administrador precisa criar novas configurações."""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4571,7 +4630,7 @@ def confirmar_reserva():
     conf = configuracoes()
     if not conf:
         return jsonify({"message": """Erro ao recuperar recuperações globais, 
-            um administrador precisa criar novas configurações"""}), 401
+            um administrador precisa criar novas configurações."""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4664,7 +4723,7 @@ def adicionar_carrinho_emprestimo():
     conf = configuracoes()
     if not conf:
         return jsonify({"message": """Erro ao recuperar recuperações globais, 
-            um administrador precisa criar novas configurações"""}), 401
+            um administrador precisa criar novas configurações."""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4801,7 +4860,7 @@ def confirmar_emprestimo():
     conf = configuracoes()
     if not conf:
         return jsonify({"message": """Erro ao recuperar recuperações globais, 
-            um administrador precisa criar novas configurações"""}), 401
+            um administrador precisa criar novas configurações."""}), 401
     payload = informar_verificacao(trazer_pl=True)
 
     id_usuario = payload["id_usuario"]
@@ -4910,7 +4969,8 @@ def confirmar_emprestimo():
     corpo += f"""</ul>
         <p style="font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
             Por enquanto esse empréstimo está marcado como pendente, 
-            vá até a biblioteca para ser atendido e retirar os livros, em <strong>{conf[5]}</strong>.
+            vá para a biblioteca até <strong>{formatar_timestamp(data_validade)}</strong> 
+            para ser atendido e retirar os livros, em <strong>{conf[5]}</strong>.
         </p>"""
 
     enviar_email_async(email, assunto, corpo)
@@ -5409,7 +5469,7 @@ def atender_reserva(id_reserva):
     corpo = f"""
         Olá {nome}, Você possui um empréstimo ativo feito a partir do atentimento de uma reserva. <br>
         Devolva até {data_devolver} para evitar multas. <br>
-        Livros Emprestados: <br>
+        <strong>Livros Emprestados:</strong></p>
         <ul style="padding-left: 20px; font-size: 16px;">
         """
 
@@ -5480,8 +5540,8 @@ def atender_emprestimo(id_emprestimo):
     data_devolver = formatar_timestamp(str(data_devolver))
     corpo = f"""
     Olá {nome}, você fez um empréstimo que agora está marcado como "ATIVO". <br>
-    Devolva até: {data_devolver} para evitar multas. <br>
-    Livros emprestados: <br>
+    Devolva até: <strong>{data_devolver}</strong> para evitar multas. <br>
+    <strong>Livros emprestados:</strong></p>
     <ul style="padding-left: 20px; font-size: 16px;">
     """
 
