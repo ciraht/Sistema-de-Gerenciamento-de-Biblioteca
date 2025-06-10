@@ -6847,7 +6847,7 @@ def create_banner():
 
             if not mobile:
                 cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
-                        (title, startDate, finishDate))
+                            (title, startDate, finishDate))
             else:
                 cur.execute("""INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM, MOBILE)
                  VALUES(?,?,?, TRUE) returning id_banner""",
@@ -6920,9 +6920,11 @@ def get_banners_in_use():
     cur = con.cursor()
     try:
         cur.execute(
-            """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE
-            FROM BANNERS 
-            WHERE MOBILE = FALSE AND DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
+            """ 
+            SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE, mobile
+            FROM BANNERS b
+            WHERE b.MOBILE = FALSE AND  DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE 
+            OR b.MOBILE = true AND DATAFIM IS NULL
             ORDER BY INDICE ASC
             """)
         response = cur.fetchall()
@@ -6934,7 +6936,8 @@ def get_banners_in_use():
                 "title": r[1],
                 "startDate": r[2],
                 "finishDate": r[3],
-                "imagePath": imagePath
+                "imagePath": imagePath,
+                "mobile": r[5]
             }
             banners.append(banner)
 
@@ -6951,9 +6954,9 @@ def get_banners_in_use2():
     cur = con.cursor()
     try:
         cur.execute(
-            """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE
-            FROM BANNERS 
-            WHERE MOBILE = TRUE AND DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
+            """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE, mobile
+            FROM BANNERS b
+            WHERE b.MOBILE = true AND  DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR b.MOBILE = true AND DATAFIM IS NULL
             ORDER BY INDICE ASC
             """)
         response = cur.fetchall()
@@ -6965,7 +6968,8 @@ def get_banners_in_use2():
                 "title": r[1],
                 "startDate": r[2],
                 "finishDate": r[3],
-                "imagePath": imagePath
+                "imagePath": imagePath,
+                "mobile": r[5]
             }
             banners.append(banner)
 
