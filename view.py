@@ -6151,7 +6151,7 @@ def get_all_multas(pagina):
                 M.VALOR_BASE,
                 M.VALOR_ACRESCIMO,
                 M.PAGO,
-                LIST(A.TITULO, ', ') AS TITULOS
+                LIST(A.TITULO, '; ') AS TITULOS
             FROM MULTAS M
             JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
             JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
@@ -6211,7 +6211,7 @@ def pesquisar_multas(pagina):
                     M.VALOR_BASE,
                     M.VALOR_ACRESCIMO,
                     M.PAGO,
-                    LIST(A.TITULO, ', ') AS TITULOS
+                    LIST(A.TITULO, '; ') AS TITULOS
                 FROM MULTAS M
                 JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
                 JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
@@ -6335,7 +6335,7 @@ def get_multas_by_id(id):
                 M.VALOR_BASE,
                 M.VALOR_ACRESCIMO,
                 M.PAGO,
-                LIST(A.TITULO, ', ') AS TITULOS
+                LIST(A.TITULO, '; ') AS TITULOS
             FROM MULTAS M
             JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
             JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
@@ -6390,7 +6390,7 @@ def get_multas_for_user():
                 M.VALOR_BASE,
                 M.VALOR_ACRESCIMO,
                 M.PAGO,
-                LIST(A.TITULO, ', ') AS TITULOS
+                LIST(A.TITULO, '; ') AS TITULOS
             FROM MULTAS M
             JOIN USUARIOS U ON M.ID_USUARIO = U.ID_USUARIO
             JOIN EMPRESTIMOS E ON E.ID_EMPRESTIMO = M.ID_EMPRESTIMO
@@ -6438,7 +6438,7 @@ def get_all_movimentacoes(pagina):
             SELECT 
                 E.ID_EMPRESTIMO, 
                 U.NOME, 
-                LIST(A.TITULO, ', ') AS TITULOS,
+                LIST(A.TITULO, '; ') AS TITULOS,
                 LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
                 E.DATA_CRIACAO, 
                 E.DATA_RETIRADA, 
@@ -6460,7 +6460,7 @@ def get_all_movimentacoes(pagina):
             SELECT 
                 R.ID_RESERVA, 
                 U.NOME, 
-                LIST(A.TITULO, ', ') AS TITULOS,
+                LIST(A.TITULO, '; ') AS TITULOS,
                 LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
                 R.DATA_CRIACAO, 
                 R.DATA_VALIDADE, 
@@ -6546,7 +6546,7 @@ def pesquisar_movimentacoes(pagina):
         sql_emp = """SELECT 
                     E.ID_EMPRESTIMO, 
                     U.NOME, 
-                    LIST(A.TITULO, ', ') AS TITULOS,
+                    LIST(A.TITULO, '; ') AS TITULOS,
                     E.DATA_CRIACAO, 
                     E.DATA_RETIRADA, 
                     E.DATA_DEVOLVER, 
@@ -6564,7 +6564,7 @@ def pesquisar_movimentacoes(pagina):
                 SELECT 
                     R.ID_RESERVA, 
                     U.NOME, 
-                    LIST(A.TITULO, ', ') AS TITULOS,
+                    LIST(A.TITULO, '; ') AS TITULOS,
                     R.DATA_CRIACAO, 
                     R.DATA_VALIDADE, 
                     R.STATUS
