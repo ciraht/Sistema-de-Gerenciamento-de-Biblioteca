@@ -7051,11 +7051,11 @@ def put_banners_by_id(id):
 
             data_atual = datetime.date.today().strftime("%y-%m-%d")
             if not mobile:
-                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = FALSE)
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = FALSE
                 WHERE ID_BANNER = ?""",
                             (title, startDate, finishDate, id))
             else:
-                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = TRUE)
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = TRUE
                  WHERE ID_BANNER = ?""",
                             (title, startDate, finishDate, id))
         else:
