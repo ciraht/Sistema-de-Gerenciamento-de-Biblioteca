@@ -6924,7 +6924,7 @@ def get_banners_in_use():
             SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE, mobile
             FROM BANNERS b
             WHERE b.MOBILE = FALSE AND  DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE 
-            OR b.MOBILE = true AND DATAFIM IS NULL
+            OR b.MOBILE = FALSE AND DATAFIM IS NULL
             ORDER BY INDICE ASC
             """)
         response = cur.fetchall()
@@ -6991,7 +6991,7 @@ def get_banners_all():
     try:
         cur.execute(
             """
-            SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE FROM BANNERS
+            SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE, MOBILE FROM BANNERS
             ORDER BY INDICE ASC
             """)
         response = cur.fetchall()
@@ -7008,7 +7008,8 @@ def get_banners_all():
                 "title": r[1],
                 "startDate": start_date,
                 "finishDate": finish_date,
-                "imagePath": imagePath
+                "imagePath": imagePath,
+                "mobile": r[5]
             }
             banners.append(banner)
 
@@ -7043,7 +7044,7 @@ def put_banners_by_id(id):
 
             data_atual = datetime.date.today().strftime("%y-%m-%d")
             if not mobile:
-                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?)
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = FALSE)
                 WHERE ID_BANNER = ?""",
                             (title, startDate, finishDate, id))
             else:
@@ -7056,7 +7057,7 @@ def put_banners_by_id(id):
                 WHERE ID_BANNER = ?""",
                             (title, startDate, id))
             else:
-                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = NULL 
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = NULL , MOBILE = FALSE
                                 WHERE ID_BANNER = ?""",
                             (title, startDate, id))
 
