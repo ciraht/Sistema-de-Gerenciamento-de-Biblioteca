@@ -149,7 +149,7 @@ def invalidar_emp_res():
             cur.execute("""
             SELECT TITULO, AUTOR FROM ACERVO a 
             INNER JOIN ITENS_EMPRESTIMO ie ON ie.ID_LIVRO = a.ID_LIVRO 
-            WHERE ie.ID_EMPRESTIMO = ?""", (id_emp, ))
+            WHERE ie.ID_EMPRESTIMO = ?""", (id_emp,))
             livros = cur.fetchall()
             data_formatada = formatar_timestamp(data_validade)
 
@@ -928,7 +928,6 @@ def logar():
             ativo = cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_user,))
             ativo = ativo.fetchone()[0]
             if not ativo:
-
                 return jsonify(
                     {
                         "message": "Este usuário está inativado.",
@@ -1171,12 +1170,10 @@ def reativar_usuario():
         cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         tipo = cur.fetchone()[0]
         if tipo == 3:
-
             return jsonify({"message": "Esse usuário não pode ser reativado."}), 401
         # Checar se já está ativo
         cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         if cur.fetchone()[0]:
-
             return jsonify({"message": "Usuário já está ativo."}), 200
         cur.execute("UPDATE USUARIOS SET ATIVO = TRUE WHERE ID_USUARIO = ?", (id_usuario,))
         con.commit()
@@ -1202,20 +1199,17 @@ def inativar_usuario():
         # Checar se existe
         cur.execute("SELECT 1 FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         if not cur.fetchone():
-
             return jsonify({"message": "Usuário não encontrado."}), 404
 
         cur.execute("SELECT TIPO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         tipo = cur.fetchone()[0]
         if tipo == 3:
-
             return jsonify({"message": "Esse usuário não pode ser inativado."}), 401
 
         # Checar se já está inativado
         cur.execute("SELECT ATIVO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         tipo = cur.fetchone()[0]
         if not tipo:
-
             return jsonify({"message": "Usuário já está inativado."}), 200
 
         cur.execute("UPDATE USUARIOS SET ATIVO = FALSE WHERE ID_USUARIO = ?", (id_usuario,))
@@ -1244,7 +1238,6 @@ def usuario_put():
         usuario_data = cur.fetchone()
 
         if not usuario_data:
-
             return jsonify({"message": "Usuário não encontrado."}), 404
 
         data = request.form
@@ -1261,33 +1254,27 @@ def usuario_put():
             return jsonify({"message": "o telefone deve ter no máximo 11 digitos com o DDD"}), 401
 
         if not all([nome, email, telefone, endereco]):
-
             return jsonify({"message": "Todos os campos são obrigatórios, exceto a senha."}), 401
 
         if senha_nova or senha_confirm:
             if not senha_antiga:
-
                 return jsonify({"message": "Para alterar a senha, é necessário informar a senha antiga."}), 401
 
             if senha_nova == senha_antiga:
-
                 return jsonify({"message": "A senha nova não pode ser igual à senha atual."}), 401
 
             cur.execute("SELECT senha FROM usuarios WHERE id_usuario = ?", (id_usuario,))
             senha_armazenada = cur.fetchone()[0]
 
             if not check_password_hash(senha_armazenada, senha_antiga):
-
                 return jsonify({"message": "Senha antiga incorreta."}), 401
 
             if senha_nova != senha_confirm:
-
                 return jsonify({"message": "A nova senha e a confirmação devem ser iguais."}), 401
 
             if len(senha_nova) < 8 or not any(c.isupper() for c in senha_nova) or not any(
                     c.islower() for c in senha_nova) or not any(c.isdigit() for c in senha_nova) or not any(
                 c in "!@#$%^&*(), -.?\":{}|<>" for c in senha_nova):
-
                 return jsonify({
                     "message": "A senha deve conter pelo menos 8 caracteres, uma letra maiúscula, uma letra minúscula, um número e um caractere especial."}), 401
 
@@ -1298,14 +1285,12 @@ def usuario_put():
             )
         cur.execute("SELECT 1 FROM USUARIOS WHERE EMAIL = ? AND ID_USUARIO <> ?", (email, id_usuario))
         if cur.fetchone():
-
             return jsonify({
                 "message": "Este email pertence a outra pessoa."
             }), 401
 
         cur.execute("SELECT 1 FROM USUARIOS WHERE telefone = ? AND ID_USUARIO <> ?", (telefone, id_usuario))
         if cur.fetchone():
-
             return jsonify({
                 "message": "Este telefone pertence a outra pessoa."
             }), 401
@@ -2449,7 +2434,8 @@ def alterar_disponibilidade_livro():
 
         cur.execute("SELECT ID_EMPRESTIMO FROM ITENS_EMPRESTIMO WHERE ID_LIVRO = ?", (id_livro,))
         emprestimos_deletar = cur.fetchall()
-        emprestimos_deletar = [r[0] for r in emprestimos_deletar]  # Extrai apenas o valor do ID_EMPRESTIMO de cada tupla
+        emprestimos_deletar = [r[0] for r in
+                               emprestimos_deletar]  # Extrai apenas o valor do ID_EMPRESTIMO de cada tupla
 
         if emprestimos_deletar:
             placeholders = ', '.join('?' for _ in emprestimos_deletar)
@@ -2607,7 +2593,7 @@ def devolver_emprestimo(id):
 
             for reserva in reservas:
                 # Verificar se todos os livros da reserva estão disponíveis
-                cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (reserva, ))
+                cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (reserva,))
                 livros_da_reserva = cur.fetchall()
                 print(f"livros: {livros}, livros_da_reserva: {livros_da_reserva}")
                 passa = True
@@ -2733,7 +2719,8 @@ def devolver_emprestimo(id):
                         anexado ou contate um bibliotecário para outros métodos de pagamento.
                     """
             enviar_email_async(email, assunto, corpo, f"{valor}.png")
-            criar_notificacao(tangao[0], 'Você possui uma multa por entregar um empréstimo com atraso.', 'Aviso de Multa')
+            criar_notificacao(tangao[0], 'Você possui uma multa por entregar um empréstimo com atraso.',
+                              'Aviso de Multa')
 
         else:
             cur.execute("""
@@ -2747,7 +2734,7 @@ def devolver_emprestimo(id):
             emprestimo = cur.fetchone()
             cur.execute("""SELECT EMAIL FROM USUARIOS 
                         WHERE ID_USUARIO IN (SELECT ID_USUARIO FROM EMPRESTIMOS WHERE ID_EMPRESTIMO = ?)
-                        """, (id, ))
+                        """, (id,))
             email = cur.fetchone()[0]
 
             corpo = f"""
@@ -3021,7 +3008,7 @@ def deletar_reservas(id_reserva):
         cur.execute("UPDATE reservas SET STATUS = 'CANCELADA' WHERE id_reserva = ?", (id_reserva,))
 
         cur.execute("SELECT ID_USUARIO, NOME, EMAIL FROM USUARIOS u "
-                    "WHERE u.ID_USUARIO IN (SELECT r.ID_USUARIO FROM RESERVAS r WHERE r.ID_RESERVA = ?)", (id_reserva, ))
+                    "WHERE u.ID_USUARIO IN (SELECT r.ID_USUARIO FROM RESERVAS r WHERE r.ID_RESERVA = ?)", (id_reserva,))
 
         usuario = cur.fetchone()
         cur.execute("""
@@ -3551,7 +3538,7 @@ def relatorio_pesquisa_multas_json(pagina):
                 ORDER BY m.DATA_ADICIONADO
                 """
         sql += f' ROWS {inicial} TO {final}'
-        cur.execute(sql, (pesquisa, pesquisa, ))
+        cur.execute(sql, (pesquisa, pesquisa,))
         multas = cur.fetchall()
 
         cur.execute("""
@@ -3711,7 +3698,7 @@ def relatorio_peqsuisa_livros_faltando_json(pagina):
         ORDER BY a.id_livro"""
 
         sql += f' ROWS {inicial} to {final}'
-        cur.execute(sql, (pesquisa, pesquisa, ))
+        cur.execute(sql, (pesquisa, pesquisa,))
         livros = cur.fetchall()
 
         subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "ano_publicado",
@@ -3788,7 +3775,8 @@ def relatorio_livros_json(pagina):
         cur.execute(sql)
         livros = cur.fetchall()
 
-        subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao", "idiomas",
+        subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao",
+                      "idiomas",
                       "ano_publicado"]
 
         livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
@@ -3861,7 +3849,8 @@ def relatorio_pesquisa_livros_json(pagina):
         cur.execute(sql, (pesquisa, pesquisa))
         livros = cur.fetchall()
 
-        subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao", "idiomas",
+        subtitulos = ["id", "titulo", "qtd_emprestada", "qtd_total", "autor", "categoria", "isbn", "descricao",
+                      "idiomas",
                       "ano_publicado"]
 
         livros_json = [dict(zip(subtitulos, livro)) for livro in livros]
@@ -3970,7 +3959,7 @@ def relatorio_pesquisa_usuarios_json(pagina):
             WHERE (u.nome CONTAINING ? OR u.EMAIL CONTAINING ?)
         """
         sql += f' ORDER BY id_usuario ROWS {inicial} to {final}'
-        cur.execute(sql, (pesquisa, pesquisa, ))
+        cur.execute(sql, (pesquisa, pesquisa,))
         usuarios = cur.fetchall()
 
         subtitulos = ["id", "nome", "email", "telefone", "endereco"]
@@ -5493,7 +5482,8 @@ def confirmar_emprestimo():
                           """Você fez uma solicitação de empréstimo que por enquanto está pendente, 
         vá até a biblioteca para ser atendido.""", "Aviso de Empréstimo")
 
-        return jsonify({"message": "Empréstimo registrado com sucesso. Venha para a biblioteca para ser atendido."}), 200
+        return jsonify(
+            {"message": "Empréstimo registrado com sucesso. Venha para a biblioteca para ser atendido."}), 200
     except Exception:
         print("Erro em /emprestar")
         raise
@@ -5989,7 +5979,7 @@ def atender_reserva(id_reserva):
             return jsonify({"message": "Reserva não encontrada ou já foi atendida/cancelada."}), 404
 
         id_usuario = dados[0]
-        cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (id_reserva, ))
+        cur.execute("SELECT ID_LIVRO FROM ITENS_RESERVA WHERE ID_RESERVA = ?", (id_reserva,))
         livros = cur.fetchall()
         data_devolver = devolucao()
 
@@ -6013,7 +6003,7 @@ def atender_reserva(id_reserva):
             cur.execute("""
                 INSERT INTO itens_emprestimo (id_emprestimo, id_livro) 
                 VALUES (?, ?)
-            """, (id_emprestimo, livro[0], ))
+            """, (id_emprestimo, livro[0],))
 
         cur.execute("SELECT NOME, EMAIL FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario,))
         nome, email = cur.fetchone()
@@ -6043,7 +6033,8 @@ def atender_reserva(id_reserva):
         titulo = "Nota de Empréstimo por Atendimento de Reserva"
 
         enviar_email_async(email, titulo, corpo)
-        criar_notificacao(id_usuario, f'Uma reserva sua foi atendida e agora é um empréstimo, devolva até {data_devolver}.',
+        criar_notificacao(id_usuario,
+                          f'Uma reserva sua foi atendida e agora é um empréstimo, devolva até {data_devolver}.',
                           titulo)
 
         return jsonify({
@@ -6225,7 +6216,7 @@ def pesquisar_multas(pagina):
                     M.ID_EMPRESTIMO, M.VALOR_BASE, M.VALOR_ACRESCIMO, M.PAGO
             """
         sql += f' ROWS {inicial} to {final}'
-        cur.execute(sql, (pesquisa, pesquisa, ))
+        cur.execute(sql, (pesquisa, pesquisa,))
         multas = cur.fetchall()
 
         return jsonify([
@@ -6842,6 +6833,7 @@ def create_banner():
     startDate = data.get("startdate")
     finishDate = data.get("finishdate")
     title = data.get("title")
+    mobile = data.get("mobile")
 
     cur = con.cursor()
     try:
@@ -6853,12 +6845,21 @@ def create_banner():
 
             data_atual = datetime.datetime.now().strftime("%Y-%m-%d")
 
-            cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
+            if not mobile:
+                cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM) VALUES(?,?,?) returning id_banner",
                         (title, startDate, finishDate))
+            else:
+                cur.execute("""INSERT INTO BANNERS(TITULO, DATAINICIO, DATAFIM, MOBILE)
+                 VALUES(?,?,?, TRUE) returning id_banner""",
+                            (title, startDate, finishDate))
         else:
 
-            cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO) VALUES(?,?) returning id_banner",
-                        (title, startDate))
+            if not mobile:
+                cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO) VALUES(?,?) returning id_banner",
+                            (title, startDate))
+            else:
+                cur.execute("INSERT INTO BANNERS(TITULO, DATAINICIO, MOBILE) VALUES(?,?, TRUE) returning id_banner",
+                            (title, startDate))
 
         id_banner = cur.fetchone()
         id_banner = id_banner[0]
@@ -6921,7 +6922,7 @@ def get_banners_in_use():
         cur.execute(
             """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE
             FROM BANNERS 
-            WHERE DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
+            WHERE MOBILE = FALSE AND DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
             ORDER BY INDICE ASC
             """)
         response = cur.fetchall()
@@ -6940,6 +6941,37 @@ def get_banners_in_use():
         return jsonify({"banners": banners}), 200
     except Exception:
         print("Erro em /banners/users")
+        raise
+    finally:
+        cur.close()
+
+
+@app.route("/banners/users2", methods=["GET"])
+def get_banners_in_use2():
+    cur = con.cursor()
+    try:
+        cur.execute(
+            """SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, INDICE
+            FROM BANNERS 
+            WHERE MOBILE = TRUE AND DATAINICIO <= CURRENT_DATE AND DATAFIM >= CURRENT_DATE OR DATAFIM IS NULL
+            ORDER BY INDICE ASC
+            """)
+        response = cur.fetchall()
+
+        banners = []
+        for r in response:
+            imagePath = f"{r[0]}.jpeg"
+            banner = {
+                "title": r[1],
+                "startDate": r[2],
+                "finishDate": r[3],
+                "imagePath": imagePath
+            }
+            banners.append(banner)
+
+        return jsonify({"banners": banners}), 200
+    except Exception:
+        print("Erro em /banners/users2")
         raise
     finally:
         cur.close()
@@ -6995,6 +7027,7 @@ def put_banners_by_id(id):
     finishDate = data.get("finishdate")
     title = data.get("title")
     banner = request.files.get("banner")
+    mobile = data.get("mobile")
 
     cur = con.cursor()
     try:
@@ -7005,11 +7038,23 @@ def put_banners_by_id(id):
                 return jsonify({"message": "A data de inicio deve ser menor ou igual à data de término do banner"}), 400
 
             data_atual = datetime.date.today().strftime("%y-%m-%d")
-            cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ? WHERE ID_BANNER = ?",
-                        (title, startDate, finishDate, id))
+            if not mobile:
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?)
+                WHERE ID_BANNER = ?""",
+                            (title, startDate, finishDate, id))
+            else:
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = ?, MOBILE = TRUE)
+                 WHERE ID_BANNER = ?""",
+                            (title, startDate, finishDate, id))
         else:
-            cur.execute("UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = NULL WHERE ID_BANNER = ?",
-                        (title, startDate, id))
+            if mobile:
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, MOBILE = TRUE, DATAFIM = NULL 
+                WHERE ID_BANNER = ?""",
+                            (title, startDate, id))
+            else:
+                cur.execute("""UPDATE BANNERS SET TITULO = ?, DATAINICIO = ?, DATAFIM = NULL 
+                                WHERE ID_BANNER = ?""",
+                            (title, startDate, id))
 
         if banner:
             pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "banners")
@@ -7035,7 +7080,7 @@ def get_banners_by_id(id):
 
     cur = con.cursor()
     try:
-        cur.execute("SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM FROM BANNERS WHERE ID_BANNER = ?", (id,))
+        cur.execute("SELECT ID_BANNER, TITULO, DATAINICIO, DATAFIM, mobile FROM BANNERS WHERE ID_BANNER = ?", (id,))
         response = cur.fetchone()
         imagePath = f"{response[0]}.jpeg"
 
@@ -7043,6 +7088,7 @@ def get_banners_by_id(id):
             "title": response[1],
             "startDate": response[2],
             "finishDate": response[3],
+            "mobile": response[4],
             "imagePath": imagePath
         }
 
