@@ -130,13 +130,17 @@ def invalidar_emp_res():
         cur.execute("""
         SELECT u.nome, u.email, e.id_emprestimo, u.id_usuario, e.data_validade FROM USUARIOS u 
         INNER JOIN EMPRESTIMOS e ON e.ID_USUARIO = u.ID_USUARIO 
-        WHERE e.DATA_RETIRADA IS NULL AND CAST(e.DATA_VALIDADE AS DATE) < CURRENT_DATE""")
+        WHERE e.DATA_RETIRADA IS NULL 
+        AND CAST(e.DATA_VALIDADE AS DATE) < CURRENT_DATE 
+        AND e.STATUS IN ('PENDENTE')""")
         abandonadores_de_emprestimo = cur.fetchall()
 
         cur.execute("""
         SELECT u.nome, u.email, r.id_reserva, u.id_usuario, r.data_validade FROM USUARIOS u 
         INNER JOIN RESERVAS r ON r.ID_USUARIO = u.ID_USUARIO 
-        WHERE CAST (r.DATA_VALIDADE AS DATE) < CURRENT_DATE AND r.DATA_VALIDADE IS NOT NULL""")
+        WHERE CAST (r.DATA_VALIDADE AS DATE) < CURRENT_DATE 
+        AND r.DATA_VALIDADE IS NOT NULL 
+        AND r.STATUS IN ('PENDENTE', 'EM ESPERA')""")
         abandonadores_de_reserva = cur.fetchall()
 
         cur.execute("""UPDATE EMPRESTIMOS e SET e.STATUS = 'CANCELADO' WHERE e.DATA_RETIRADA IS NULL
@@ -531,6 +535,9 @@ def enviar_email_async(destinatario, assunto, corpo, qr_code=None):
 
 
 def formatar_timestamp(timestamp, horario=None, somente_data=None):
+    if not timestamp:
+        return "—"
+
     # Definir o locale para português (Brasil)
     locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
 
