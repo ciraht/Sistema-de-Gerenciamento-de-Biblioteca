@@ -6547,6 +6547,7 @@ def pesquisar_movimentacoes(pagina):
                     E.ID_EMPRESTIMO, 
                     U.NOME, 
                     LIST(A.TITULO, '; ') AS TITULOS,
+                    LIST(A.ID_LIVRO, '; ') AS ID_LIVROS,
                     E.DATA_CRIACAO, 
                     E.DATA_RETIRADA, 
                     E.DATA_DEVOLVER, 
@@ -6565,6 +6566,7 @@ def pesquisar_movimentacoes(pagina):
                     R.ID_RESERVA, 
                     U.NOME, 
                     LIST(A.TITULO, '; ') AS TITULOS,
+                    LIST(A.ID_LIVRO, '; ') AS ID_LIVROS,
                     R.DATA_CRIACAO, 
                     R.DATA_VALIDADE, 
                     R.STATUS
@@ -6592,57 +6594,54 @@ def pesquisar_movimentacoes(pagina):
         sql_emp += " GROUP BY E.ID_EMPRESTIMO, U.NOME, E.DATA_CRIACAO, E.DATA_RETIRADA, E.DATA_DEVOLVER, E.DATA_DEVOLVIDO, E.DATA_VALIDADE, E.STATUS"
         sql_res += " GROUP BY R.ID_RESERVA, U.NOME, R.DATA_CRIACAO, R.DATA_VALIDADE, R.STATUS"
 
-        # Consulta de empréstimos com títulos agrupados
         cur.execute(sql_emp)
         emprestimos = cur.fetchall()
 
-        # Consulta de reservas com títulos agrupados
         cur.execute(sql_res)
         reservas = cur.fetchall()
 
         movimentacoes = []
 
-        if tipo_mov == "emprestimo" or tipo_mov == "todos" or tipo_mov == "devolucao":
+        if tipo_mov in ["emprestimo", "todos", "devolucao"]:
             for e in emprestimos:
                 movimentacoes.append({
                     'tipo': 'emprestimo',
                     'id': e[0],
                     'usuario': e[1],
                     'titulo': e[2],
-                    'data_evento': e[3],  # Para ordenação
-                    'data_evento_str': e[3].isoformat(timespec='minutes') if e[3] else None,
-                    'data_criacao': e[3].isoformat(timespec='minutes') if e[3] else None,
-                    'data_retirada': e[4].isoformat(timespec='minutes') if e[4] else None,
-                    'data_devolver': e[5].isoformat(timespec='minutes') if e[5] else None,
-                    'data_devolvida': e[6].isoformat(timespec='minutes') if e[6] else None,
-                    'data_validade': e[7].isoformat(timespec='minutes') if e[7] else None,
-                    'status': e[8]
+                    'id_livro': e[3],
+                    'data_evento': e[4],
+                    'data_evento_str': e[4].isoformat(timespec='minutes') if e[4] else None,
+                    'data_criacao': e[4].isoformat(timespec='minutes') if e[4] else None,
+                    'data_retirada': e[5].isoformat(timespec='minutes') if e[5] else None,
+                    'data_devolver': e[6].isoformat(timespec='minutes') if e[6] else None,
+                    'data_devolvida': e[7].isoformat(timespec='minutes') if e[7] else None,
+                    'data_validade': e[8].isoformat(timespec='minutes') if e[8] else None,
+                    'status': e[9]
                 })
 
-        if tipo_mov == "reserva" or tipo_mov == "todos":
+        if tipo_mov in ["reserva", "todos"]:
             for r in reservas:
                 movimentacoes.append({
                     'tipo': 'reserva',
                     'id': r[0],
                     'usuario': r[1],
                     'titulo': r[2],
-                    'data_evento': r[3],  # Para ordenação
-                    'data_evento_str': r[3].isoformat(timespec='minutes') if r[3] else None,
-                    'data_criacao': r[3].isoformat(timespec='minutes') if r[3] else None,
-                    'data_validade': r[4].isoformat(timespec='minutes') if r[4] else None,
-                    'status': r[5]
+                    'id_livro': r[3],
+                    'data_evento': r[4],
+                    'data_evento_str': r[4].isoformat(timespec='minutes') if r[4] else None,
+                    'data_criacao': r[4].isoformat(timespec='minutes') if r[4] else None,
+                    'data_validade': r[5].isoformat(timespec='minutes') if r[5] else None,
+                    'status': r[6]
                 })
 
-        # Ordenar pela data_evento (mais recente primeiro)
         movimentacoes.sort(key=lambda x: x['data_evento'], reverse=True)
 
-        # Remover o campo datetime bruto (não serializável)
         for m in movimentacoes:
             del m['data_evento']
 
         inicial = pagina * 12 - 11 if pagina == 1 else pagina * 12 - 11
         final = pagina * 12
-        # print(f'ROWS {inicial} to {final}')
 
         return jsonify(movimentacoes[inicial - 1:final])
     except Exception:
