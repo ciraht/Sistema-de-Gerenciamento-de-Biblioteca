@@ -3150,7 +3150,7 @@ def pesquisar_livros(pagina):
             if isinstance(tag_list, list) and tag_list:
                 for tag in tag_list:
                     conditions.append(
-                        "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag CONTAINING ?)")
+                        "EXISTS (SELECT 1 FROM livro_tags lt2 JOIN tags t2 ON lt2.id_tag = t2.id_tag WHERE lt2.id_livro = a.id_livro AND t2.nome_tag = ?)")
                     params.append(tag)
         if conditions:
             sql += " AND " + " AND ".join(conditions)
@@ -6481,7 +6481,7 @@ def get_all_movimentacoes(pagina):
                 E.ID_EMPRESTIMO, 
                 U.NOME, 
                 LIST(A.TITULO, '; ') AS TITULOS,
-                LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
+                LIST(A.ID_LIVRO, '; ') AS ID_LIVROS,
                 E.DATA_CRIACAO, 
                 E.DATA_RETIRADA, 
                 E.DATA_DEVOLVER, 
@@ -6503,7 +6503,7 @@ def get_all_movimentacoes(pagina):
                 R.ID_RESERVA, 
                 U.NOME, 
                 LIST(A.TITULO, '; ') AS TITULOS,
-                LIST(A.ID_LIVRO, ', ') AS ID_LIVROS,
+                LIST(A.ID_LIVRO, '; ') AS ID_LIVROS,
                 R.DATA_CRIACAO, 
                 R.DATA_VALIDADE, 
                 R.STATUS
