@@ -14,8 +14,48 @@ from email.message import EmailMessage
 from pixqrcode import PixQrCode
 from random import randint
 import locale
+import segno
 
 senha_secreta = app.config['SECRET_KEY']
+
+
+def gerar_payload_pix(chave, nome, cidade, valor):
+    def formatar_campo(id, valor):
+        tamanho = f'{len(valor):02}'
+        return f'{id}{tamanho}{valor}'
+
+    payload = ''
+    payload += formatar_campo('00', '01')  # Payload Format Indicator
+    payload += formatar_campo('26',
+                              formatar_campo('00', 'BR.GOV.BCB.PIX') +
+                              formatar_campo('01', chave)
+                              )
+    payload += formatar_campo('52', '0000')
+    payload += formatar_campo('53', '986')
+    payload += formatar_campo('54', f'{float(valor):.2f}')
+    payload += formatar_campo('58', 'BR')
+    payload += formatar_campo('59', nome[:25])
+    payload += formatar_campo('60', cidade[:15])
+    payload += formatar_campo('62', formatar_campo('05', '***'))  # Txid
+
+    full_payload = payload + '6304'
+    crc = calcular_crc16(full_payload)
+    return full_payload + crc
+
+
+def calcular_crc16(payload):
+    polinomio = 0x1021
+    resultado = 0xFFFF
+
+    for c in payload.encode('utf-8'):
+        resultado ^= c << 8
+        for _ in range(8):
+            if resultado & 0x8000:
+                resultado = (resultado << 1) ^ polinomio
+            else:
+                resultado <<= 1
+            resultado &= 0xFFFF
+    return format(resultado, '04X')
 
 
 def configuracoes():
@@ -603,6 +643,15 @@ def trazer_configuracoes():
         cur.close()
 
 
+def validar_payload_pix(chave, nome, cidade, valor):
+    try:
+        payload = gerar_payload_pix(chave, nome, cidade, valor)
+        segno.make(payload)  # tenta gerar QR; se falhar, levanta exceção
+        return True
+    except Exception:
+        return False
+
+
 @app.route('/configuracoes/criar', methods=["POST"])
 def criar_verificacoes():
     verificacao = informar_verificacao(3)
@@ -633,20 +682,14 @@ def criar_verificacoes():
     except (ValueError, TypeError):
         return jsonify({"message": "Os campos de dias e limites de livros devem ser numéricos."}), 400
 
-    chave_pix = formatar_telefone(chave_pix)
-    if chave_pix == 0:
-        return jsonify({
-            "message": 'Erro ao formatar chave pix como telefone. Siga este formato com DDD: (18) 12345-1234'}), 401
+    print(chave_pix, raz_social, endereco)
 
-    try:
-        pix = PixQrCode(raz_social, chave_pix, endereco, '100')
-        teste_erro = pix.is_valid()
-    except Exception as e:
+    # Validação simples do Pix usando segno para tentar criar QR
+    if not validar_payload_pix(chave_pix, raz_social, endereco, '100'):
         return jsonify({"message": "Os dados para Pix são inválidos."}), 401
 
     cur = con.cursor()
     try:
-
         cur.execute("""
             INSERT INTO CONFIGURACOES (
                 DIAS_VALIDADE_EMPRESTIMO, 
@@ -662,9 +705,9 @@ def criar_verificacoes():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (dias_emp, dias_emp_b, chave_pix, raz_social, endereco, telefone, email, limite_emp,
               limite_res, str(apelido_email)))
+        con.commit()
     finally:
         cur.close()
-        con.commit()
 
     return jsonify({"message": "Novas configurações adicionadas com sucesso"}), 200
 
@@ -2702,21 +2745,20 @@ def devolver_emprestimo(id):
             email = tangao[2]
 
             chave_pix = conf[3]
-            chave_pix = formatar_telefone(chave_pix)
-            if chave_pix == 0:
-                return jsonify(
-                    {"message": "Erro ao recuperar chave PIX, edite ela nas configurações para um telefone válido."})
 
-            # Gerando código de pix para enviar para o e-mail de quem tem multa
-            pix = PixQrCode("Read Raccoon", chave_pix, "Birigui", str(valor))
 
-            # Guardar imagem na aplicação para que o e-mail a pegue depois e use como anexo
-            if not os.path.exists(f"{app.config['UPLOAD_FOLDER']}/codigos-pix"):
-                if not os.path.exists(app.config['UPLOAD_FOLDER']):
-                    os.makedirs(app.config['UPLOAD_FOLDER'])
-                pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
-                os.makedirs(pasta_destino, exist_ok=True)
-            pix.save_qrcode(filename=f"{app.config['UPLOAD_FOLDER']}/codigos-pix/{str(valor)}")
+            # Gerando QR Code com segno
+            payload = gerar_payload_pix(chave_pix, nome[:25], "Birigui", valor2)
+            qr = segno.make(payload)
+
+            # Criar pasta, se necessário
+            pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+            os.makedirs(pasta_destino, exist_ok=True)
+
+            # Salvar imagem como PNG
+            caminho_arquivo = os.path.join(pasta_destino, f"{valor}.png")
+            qr.save(caminho_arquivo, scale=5)
+
             # print("Novo quick response code de pix criado")
 
             assunto = f'Aviso de Multa'
