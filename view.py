@@ -11,7 +11,6 @@ from flask_bcrypt import generate_password_hash, check_password_hash
 from fpdf import FPDF
 from apscheduler.schedulers.background import BackgroundScheduler
 from email.message import EmailMessage
-from pixqrcode import PixQrCode
 from random import randint
 import locale
 import segno
