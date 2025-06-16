@@ -14,6 +14,16 @@ from email.message import EmailMessage
 from random import randint
 import locale
 import segno
+import unicodedata
+
+
+def limpar_texto(texto):
+    texto = str(texto).strip()
+    texto = unicodedata.normalize('NFD', texto)
+    texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
+    texto = texto.replace('ç', 'c').replace('Ç', 'C')
+    return texto
+
 
 senha_secreta = app.config['SECRET_KEY']
 
@@ -726,11 +736,11 @@ def gerar_pix_teste():
         usuario = cur.fetchone()
         chave_pix = conf[3]
         valor = 100
+        endereco = limpar_texto(usuario[1])
         # Gerando QR Code com segno
-        payload = gerar_payload_pix(chave_pix, usuario[0][:25], usuario[1], 100)
-        print("Payload: ", payload)
+        payload = gerar_payload_pix(chave_pix, usuario[0][:25], endereco, 1)
+        print(payload)
         qr = segno.make(payload)
-        print("qr: ", qr)
 
         # Criar pasta, se necessário
         pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
@@ -2788,11 +2798,11 @@ def devolver_emprestimo(id):
 
             nome = tangao[1]
             email = tangao[2]
-            cidade = tangao[7]
+            cidade = limpar_texto(tangao[7])
             chave_pix = conf[3]
 
             # Gerando QR Code com segno
-            payload = gerar_payload_pix(chave_pix, nome[:25], cidade, valor)
+            payload = gerar_payload_pix(chave_pix, nome[:25], cidade, valor2)
             print("Payload: ", payload)
             qr = segno.make(payload)
             print("qr: ", qr)
@@ -4708,7 +4718,7 @@ def usuarios(pagina):
 
 @app.route('/uploads/<tipo>/<filename>')
 def serve_file(tipo, filename):
-    pasta_permitida = ["usuarios", "livros", "banners"]  # Apenas pastas permitidas
+    pasta_permitida = ["usuarios", "livros", "banners", "codigos-pix"]  # Apenas pastas permitidas
     if tipo not in pasta_permitida:
         return {"error": "Acesso negado."}, 403  # Evita acesso a outras pastas
 
