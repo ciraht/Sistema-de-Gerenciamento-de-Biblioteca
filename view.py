@@ -711,6 +711,43 @@ def criar_verificacoes():
     return jsonify({"message": "Novas configurações adicionadas com sucesso"}), 200
 
 
+@app.route('/testar_pix', methods=["POST"])
+def gerar_pix_teste():
+    verificacao = informar_verificacao(3)
+    if verificacao:
+        return verificacao
+    payload = informar_verificacao(trazer_pl=True)
+    id_usuario = payload["id_usuario"]
+    conf = configuracoes()
+    cur = con.cursor()
+    try:
+
+        cur.execute("SELECT NOME, ENDERECO FROM USUARIOS WHERE ID_USUARIO = ?", (id_usuario, ))
+        usuario = cur.fetchone()
+        chave_pix = conf[3]
+        valor = 100
+        # Gerando QR Code com segno
+        payload = gerar_payload_pix(chave_pix, usuario[0][:25], usuario[1], 100)
+        print("Payload: ", payload)
+        qr = segno.make(payload)
+        print("qr: ", qr)
+
+        # Criar pasta, se necessário
+        pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
+        os.makedirs(pasta_destino, exist_ok=True)
+
+        # Salvar imagem como PNG
+        caminho_arquivo = os.path.join(pasta_destino, f"{valor}.png")
+        qr.save(caminho_arquivo, scale=5)
+
+        return jsonify({"imagem": f"{valor}.png"})
+    except Exception:
+        print("Erro em /testar_pix")
+        raise
+    finally:
+        cur.close()
+
+
 @app.route('/tem_permissao/<int:tipo>', methods=["GET"])
 def verificar(tipo):
     verificacao = informar_verificacao(tipo)
@@ -2701,7 +2738,16 @@ def devolver_emprestimo(id):
 
         # Verificar se este empréstimo possui multas criadas pela função multar_quem_precisa e enviar e-mail para a pessoa
         cur.execute("""
-            SELECT U.ID_USUARIO, U.NOME, U.EMAIL, M.VALOR_BASE, M.VALOR_ACRESCIMO, E.DATA_DEVOLVER, M.ID_MULTA FROM USUARIOS U
+            SELECT 
+            U.ID_USUARIO, 
+            U.NOME, 
+            U.EMAIL, 
+            M.VALOR_BASE, 
+            M.VALOR_ACRESCIMO, 
+            E.DATA_DEVOLVER, 
+            M.ID_MULTA, 
+            U.ENDERECO
+            FROM USUARIOS U
             JOIN EMPRESTIMOS E ON E.ID_USUARIO = U.ID_USUARIO
             INNER JOIN MULTAS M ON M.ID_EMPRESTIMO =  E.ID_EMPRESTIMO
             WHERE M.PAGO = FALSE AND M.ID_EMPRESTIMO = ?
@@ -2742,13 +2788,14 @@ def devolver_emprestimo(id):
 
             nome = tangao[1]
             email = tangao[2]
-
+            cidade = tangao[7]
             chave_pix = conf[3]
 
-
             # Gerando QR Code com segno
-            payload = gerar_payload_pix(chave_pix, nome[:25], "Birigui", valor2)
+            payload = gerar_payload_pix(chave_pix, nome[:25], cidade, valor)
+            print("Payload: ", payload)
             qr = segno.make(payload)
+            print("qr: ", qr)
 
             # Criar pasta, se necessário
             pasta_destino = os.path.join(app.config['UPLOAD_FOLDER'], "codigos-pix")
