@@ -28,43 +28,57 @@ def limpar_texto(texto):
 senha_secreta = app.config['SECRET_KEY']
 
 
+# Gera o payload Pix com base na chave, nome do recebedor, cidade e valor
 def gerar_payload_pix(chave, nome, cidade, valor):
+    # Função interna que formata cada campo do payload no padrão: ID + tamanho (2 dígitos) + valor
     def formatar_campo(id, valor):
-        tamanho = f'{len(valor):02}'
-        return f'{id}{tamanho}{valor}'
+        tamanho = f'{len(valor):02}'  # Calcula o tamanho do valor com 2 dígitos (ex: '09', '15')
+        return f'{id}{tamanho}{valor}'  # Retorna no formato exigido: ID + TAM + VALOR
 
-    payload = ''
-    payload += formatar_campo('00', '01')  # Payload Format Indicator
+    payload = ''  # Inicializa a string do payload vazio
+
+    # Campo 00: Indicador de formato fixo (valor padrão: '01')
+    payload += formatar_campo('00', '01')
+
+    # Campo 26: Informações da chave Pix
     payload += formatar_campo('26',
-                              formatar_campo('00', 'BR.GOV.BCB.PIX') +
-                              formatar_campo('01', chave)
-                              )
-    payload += formatar_campo('52', '0000')
-    payload += formatar_campo('53', '986')
-    payload += formatar_campo('54', f'{float(valor):.2f}')
-    payload += formatar_campo('58', 'BR')
-    payload += formatar_campo('59', nome[:25])
-    payload += formatar_campo('60', cidade[:15])
-    payload += formatar_campo('62', formatar_campo('05', '***'))  # Txid
+        formatar_campo('00', 'BR.GOV.BCB.PIX') +  # Subcampo 00: Identificador do método (Pix)
+        formatar_campo('01', chave)              # Subcampo 01: A chave Pix em si (e-mail, telefone, etc.)
+    )
 
+    payload += formatar_campo('52', '0000')  # Código do tipo de transação (fixo para Pix)
+    payload += formatar_campo('53', '986')   # Código da moeda (986 = BRL - real brasileiro)
+    payload += formatar_campo('54', f'{float(valor):.2f}')  # Valor da transação com 2 casas decimais
+    payload += formatar_campo('58', 'BR')    # Código do país (BR = Brasil)
+    payload += formatar_campo('59', nome[:25])  # Nome do recebedor, limitado a 25 caracteres
+    payload += formatar_campo('60', cidade[:15])  # Cidade, limitada a 15 caracteres
+
+    # Campo 62: Informações adicionais (usado aqui para Txid, que permite rastrear o pagamento)
+    payload += formatar_campo('62', formatar_campo('05', '***'))  # Txid = '***' permite reutilização
+
+    # Adiciona o campo fixo '6304' que antecede o CRC e calcula o valor do CRC16
     full_payload = payload + '6304'
     crc = calcular_crc16(full_payload)
+
+    # Retorna o payload completo com o CRC calculado no final
     return full_payload + crc
 
 
+# Função que calcula o CRC16-CCITT padrão exigido para o QR Code Pix
 def calcular_crc16(payload):
-    polinomio = 0x1021
-    resultado = 0xFFFF
+    polinomio = 0x1021      # Polinômio do algoritmo CRC16 padrão Pix
+    resultado = 0xFFFF      # Valor inicial fixo
 
-    for c in payload.encode('utf-8'):
-        resultado ^= c << 8
-        for _ in range(8):
-            if resultado & 0x8000:
-                resultado = (resultado << 1) ^ polinomio
+    for c in payload.encode('utf-8'):  # Para cada byte do payload (convertido para UTF-8)
+        resultado ^= c << 8            # Aplica XOR com o byte deslocado para a esquerda
+        for _ in range(8):             # Para cada um dos 8 bits do byte
+            if resultado & 0x8000:     # Se o bit mais à esquerda for 1
+                resultado = (resultado << 1) ^ polinomio  # Desloca e aplica o polinômio
             else:
-                resultado <<= 1
-            resultado &= 0xFFFF
-    return format(resultado, '04X')
+                resultado <<= 1        # Apenas desloca para a esquerda
+            resultado &= 0xFFFF        # Garante que o valor se mantenha com 16 bits
+
+    return format(resultado, '04X')    # Retorna o CRC como string hexadecimal com 4 dígitos
 
 
 def configuracoes():
