@@ -12,5 +12,5 @@ UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 MAIL_SERVER = 'smtp.gmail.com'
 MAIL_PORT = 465
 MAIL_USERNAME = 'readraccoon.no.reply@gmail.com'
-MAIL_PASSWORD = 'dusy waow clrd yfck'
+MAIL_PASSWORD = 'icuv equw kcgm bvvy'
 MAIL_TIMEOUT = 60
