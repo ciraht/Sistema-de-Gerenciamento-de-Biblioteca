@@ -2235,7 +2235,7 @@ def adicionar_livros():
         return jsonify({"error": "Todos os campos são obrigatórios."}), 401
     qtd_disponivel = int(qtd_disponivel)
     isbn_string = str(isbn)
-    if len(isbn_string) >= 20:
+    if len(isbn_string) > 20:
         return jsonify({"error": "O ISBN pode ter apenas até 20 dígitos"}), 401
 
     cur = con.cursor()
@@ -2372,7 +2372,7 @@ def editar_livro(id_livro):
             return jsonify({"message": "A quantidade disponível não pode ser menor que 1"}), 401
 
         isbn_string = str(isbn)
-        if len(isbn_string) >= 20:
+        if len(isbn_string) > 20:
             return jsonify({"message": "O ISBN pode ter apenas até 20 dígitos"}), 401
 
         # Verificando se os dados novos já existem na DataBase
