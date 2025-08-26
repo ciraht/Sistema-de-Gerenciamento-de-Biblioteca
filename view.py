@@ -1492,7 +1492,7 @@ def deletar_usuario():
 
         return jsonify({'message': "Usuário excluído com sucesso."})
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em /deletar_usuario")
         raise
     finally:
         cur.close()
@@ -1829,7 +1829,7 @@ def get_livros_novos():
 
         return jsonify(livros), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em /livros/novidades")
         raise
     finally:
         cur.close()
@@ -2038,7 +2038,7 @@ def recomendar_com_base_em():
             livros.append(livro)
         return jsonify({"livroAnalisado": livro_analisado, "livros": livros[0:15], "visivel": True}), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em /livros/porqueleu")
         raise
     finally:
         cur.close()
@@ -2104,7 +2104,7 @@ def trazer_minha_lista():
 
         return jsonify(livros), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro ao trazer livros de minhalista")
         raise
     finally:
         cur.close()
@@ -2232,8 +2232,12 @@ def adicionar_livros():
     imagem = request.files.get('imagem')
 
     if not all([titulo, autor, categoria, isbn, qtd_disponivel, descricao, idiomas, ano_publicado]):
-        return jsonify({"message": "Todos os campos são obrigatórios."}), 401
+        return jsonify({"error": "Todos os campos são obrigatórios."}), 401
     qtd_disponivel = int(qtd_disponivel)
+    isbn_string = str(isbn)
+    if len(isbn_string) >= 20:
+        return jsonify({"error": "O ISBN pode ter apenas até 20 dígitos"}), 401
+
     cur = con.cursor()
     try:
 
@@ -2243,7 +2247,7 @@ def adicionar_livros():
             return jsonify({"error": "ISBN já cadastrada."}), 404
 
         if qtd_disponivel < 1:
-            return jsonify({"message": "A quantidade disponível não pode ser menor que 1"}), 401
+            return jsonify({"error": "A quantidade disponível não pode ser menor que 1"}), 401
 
         if int(qtd_disponivel) < 1:
             return jsonify({"error": "Quantidade disponível precisa ser maior que 1."}), 401
@@ -2366,6 +2370,10 @@ def editar_livro(id_livro):
 
         if qtd_disponivel < 1:
             return jsonify({"message": "A quantidade disponível não pode ser menor que 1"}), 401
+
+        isbn_string = str(isbn)
+        if len(isbn_string) >= 20:
+            return jsonify({"message": "O ISBN pode ter apenas até 20 dígitos"}), 401
 
         # Verificando se os dados novos já existem na DataBase
         isbnvelho = acervo_data[3].lower()
@@ -3376,7 +3384,7 @@ def get_tag(id):
         tags = [{'id_tag': r[0], 'id_livro': r[1]} for r in cur.fetchall()]
         return jsonify(tags), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em /tags/<int:id>")
         raise
     finally:
         cur.close()
@@ -4768,7 +4776,7 @@ def trocar_tipo(id):
 
         return jsonify({"message": "Usuário atualizado com sucesso.", "tipo": data}), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em trocar tipo")
         raise
     finally:
         cur.close()
@@ -5996,7 +6004,7 @@ def historico_multas_pendentes_por_usuario(id_usuario, pagina):
 
 @app.route("/historico/<int:id_usuario>/multas_concluidas/<int:pagina>", methods=["GET"])
 def historico_multas_concluidas_por_id(id_usuario, pagina):
-    verificacao = informar_verificacao()
+    verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
 
@@ -6942,7 +6950,7 @@ def get_avaliacao_by_user(id_livro):
 
 @app.route("/banners", methods=["POST"])
 def create_banner():
-    verificacao = informar_verificacao()
+    verificacao = informar_verificacao(2)
     if verificacao:
         return verificacao
 
@@ -7268,7 +7276,7 @@ def delete_banner_by_id(id):
 
         return jsonify({"message": "Banner removido com sucesso"}), 200
     except Exception:
-        print("Erro em /esqueci_senha")
+        print("Erro em /banners/<int:id>/biblios")
         raise
     finally:
         cur.close()
